@@ -24,7 +24,7 @@ mod tests {
         fn bas() -> [i32; 3] {
             [1, 2, 3]
         }
-        
+
         let (foo_result, bar_result, bas_result) = my_macro!(foo, bar, bas);
         assert_eq!(foo_result, foo());
         assert_eq!(bar_result, bar());
