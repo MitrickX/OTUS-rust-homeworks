@@ -16,15 +16,15 @@ fn main() {
     println!("bar_result = {:?}", bar_result);
     println!("bas_result = {:?}", bas_result);
 
-    fn x() -> i32 {
+    fn fo() -> i32 {
         123
     }
 
-    fn y() -> &'static str {
+    fn fooo() -> &'static str {
         "Rust"
     }
 
-    let (x_res, y_res) = hw7_part2::my_macro!("x", "y");
-    println!("x_res = {}", x_res);
-    println!("y_res = {}", y_res);
+    let (fo_res, fooo_res) = hw7_part2::my_macro!("fo", "foo", "fooo");
+    println!("fo_res = {}", fo_res);
+    println!("fooo_res = {}", fooo_res);
 }
