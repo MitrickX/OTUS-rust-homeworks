@@ -13,6 +13,7 @@ pub fn my_macro(input: TokenStream) -> TokenStream {
 
     let elem: Vec<Ident> = data
         .into_iter()
+        .filter(|l| l.value().len() % 2 == 0)
         .map(|l| Ident::new(l.value().as_str(), Span::call_site()))
         .collect();
 

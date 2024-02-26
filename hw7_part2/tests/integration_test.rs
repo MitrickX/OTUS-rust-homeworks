@@ -2,20 +2,15 @@ use hw7_part2::my_macro;
 
 #[test]
 fn my_macro_works() {
-    fn foo() -> i32 {
+    fn fo() -> i32 {
         1 + 2
     }
 
-    fn bar() -> &'static str {
-        "Hello"
-    }
-
-    fn bas() -> [i32; 3] {
+    fn fooo() -> [i32; 3] {
         [1, 2, 3]
     }
 
-    let (foo_result, bar_result, bas_result) = my_macro!("foo", "bar", "bas");
-    assert_eq!(foo_result, foo());
-    assert_eq!(bar_result, bar());
-    assert_eq!(bas_result, bas());
+    let (fo_result, fooo_result) = my_macro!("fo", "foo", "fooo");
+    assert_eq!(fo_result, fo());
+    assert_eq!(fooo_result, fooo());
 }
