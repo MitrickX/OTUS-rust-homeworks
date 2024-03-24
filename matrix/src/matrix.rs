@@ -1,7 +1,7 @@
+use std::iter::Product;
+use std::iter::Sum;
 use std::ops::Add;
 use std::ops::Mul;
-use std::iter::Sum;
-use std::iter::Product;
 
 #[derive(PartialEq, Debug)]
 pub struct Matrix<T, const N: usize>([T; N]);
@@ -24,13 +24,13 @@ impl<T: Mul<Output = T> + Copy, const N: usize> Matrix<T, N> {
     }
 }
 
-impl <T: Add<Output = T> + Copy + for<'a> Sum<&'a T>, const N: usize> Matrix<T, N> {
+impl<T: Add<Output = T> + Copy + for<'a> Sum<&'a T>, const N: usize> Matrix<T, N> {
     pub fn sum(&self) -> T {
         self.0.iter().sum()
     }
 }
 
-impl <T: Add<Output = T> + Copy + for<'a> Product<&'a T>, const N: usize> Matrix<T, N> {
+impl<T: Add<Output = T> + Copy + for<'a> Product<&'a T>, const N: usize> Matrix<T, N> {
     pub fn product(&self) -> T {
         self.0.iter().product()
     }
