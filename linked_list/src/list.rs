@@ -10,7 +10,10 @@ pub struct Node<T> {
 
 impl<T> Node<T> {
     fn new_none(value: T) -> Self {
-        Node { value, next: Rc::new(RefCell::new(None)) }
+        Node {
+            value,
+            next: Rc::new(RefCell::new(None)),
+        }
     }
 
     fn new_some(value: T, next: NodeRef<T>) -> Self {
@@ -42,7 +45,11 @@ impl<T> List<T> {
     pub fn new() -> Self {
         let head = Rc::new(RefCell::new(None));
         let tail = head.clone();
-        List { head, tail, size: 0 }
+        List {
+            head,
+            tail,
+            size: 0,
+        }
     }
 
     pub fn push_back(&mut self, value: T) {
@@ -119,7 +126,7 @@ pub struct ListIterator<T> {
     cur: NodeRef<T>,
 }
 
-impl <T: Copy> Iterator for ListIterator<T> {
+impl<T: Copy> Iterator for ListIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -133,15 +140,17 @@ impl <T: Copy> Iterator for ListIterator<T> {
     }
 }
 
-impl <T: Copy> IntoIterator for &List<T> {
+impl<T: Copy> IntoIterator for &List<T> {
     type Item = T;
     type IntoIter = ListIterator<T>;
     fn into_iter(self) -> Self::IntoIter {
-        ListIterator { cur: self.head.clone() }
+        ListIterator {
+            cur: self.head.clone(),
+        }
     }
 }
 
-impl <T : Copy> List <T> {
+impl<T: Copy> List<T> {
     pub fn to_vec(&self) -> Vec<T> {
         let mut result = Vec::<T>::new();
 
@@ -157,7 +166,7 @@ impl <T : Copy> List <T> {
 
         let mut left = List::new();
         let mut right = List::new();
-        
+
         for idx in 0..self.size {
             if let Some(ref node) = *p.clone().borrow() {
                 if idx < n {
@@ -225,7 +234,10 @@ mod tests {
 
         result.push_after(1000, 500);
 
-        assert_eq!("[0, 101, 100, -1, 201, 200, 1, 301, 300, 2, 401, 400, 3, 500]", format!("{:?}", result.to_vec()));
+        assert_eq!(
+            "[0, 101, 100, -1, 201, 200, 1, 301, 300, 2, 401, 400, 3, 500]",
+            format!("{:?}", result.to_vec())
+        );
     }
 
     #[test]
@@ -312,7 +324,6 @@ mod tests {
         let (left, right) = three_elems.split(100);
         assert_eq!("[1, 2, 3]", format!("{:?}", left.to_vec()));
         assert_eq!("[]", format!("{:?}", right.to_vec()));
-
     }
 
     #[test]
