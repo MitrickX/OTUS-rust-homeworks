@@ -95,16 +95,58 @@ impl<T> List<T> {
 
         self.size += 1;
     }
+
+    pub fn set(&mut self, idx: usize, value: T) {
+        if self.size <= idx {
+            return;
+        }
+
+        let mut p = self.head.clone();
+
+        for _ in 0..idx {
+            if let Some(ref node) = *p.clone().borrow() {
+                p = node.next.clone();
+            };
+        }
+
+        if let Some(ref mut node) = *p.borrow_mut() {
+            node.value = value;
+        };
+    }
+}
+
+pub struct ListIterator<T> {
+    cur: NodeRef<T>,
+}
+
+impl <T: Copy> Iterator for ListIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ref node) = *self.cur.clone().borrow() {
+            let val = Some(node.value);
+            self.cur = node.next.clone();
+            val
+        } else {
+            None
+        }
+    }
+}
+
+impl <T: Copy> IntoIterator for &List<T> {
+    type Item = T;
+    type IntoIter = ListIterator<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        ListIterator { cur: self.head.clone() }
+    }
 }
 
 impl <T : Copy> List <T> {
     pub fn to_vec(&self) -> Vec<T> {
         let mut result = Vec::<T>::new();
 
-        let mut p = self.head.clone();
-        while let Some(ref node) = *p.clone().borrow() {
-            result.push(node.value);
-            p = node.next.clone();
+        for i in self {
+            result.push(i)
         }
 
         result
@@ -271,5 +313,44 @@ mod tests {
         assert_eq!("[1, 2, 3]", format!("{:?}", left.to_vec()));
         assert_eq!("[]", format!("{:?}", right.to_vec()));
 
+    }
+
+    #[test]
+    fn iter_works() {
+        let mut list = List::<i32>::new();
+        list.push_back(1);
+        list.push_back(2);
+        list.push_back(3);
+
+        let mut vec = Vec::<i32>::new();
+        for i in &list {
+            vec.push(i);
+        }
+
+        assert_eq!("[1, 2, 3]", format!("{:?}", vec));
+    }
+
+    #[test]
+    fn set_works() {
+        let mut empty = List::<i32>::new();
+        empty.set(0, 1);
+
+        assert_eq!("[]", format!("{:?}", empty.to_vec()));
+
+        empty.set(100, 1);
+
+        assert_eq!("[]", format!("{:?}", empty.to_vec()));
+
+        let mut list = List::<i32>::new();
+        list.push_back(1);
+        list.push_back(2);
+        list.push_back(3);
+
+        list.set(0, 100);
+        list.set(1, 200);
+        list.set(2, 300);
+        list.set(3, 400);
+
+        assert_eq!("[100, 200, 300]", format!("{:?}", list.to_vec()));
     }
 }
