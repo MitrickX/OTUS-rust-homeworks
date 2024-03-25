@@ -109,6 +109,28 @@ impl <T : Copy> List <T> {
 
         result
     }
+
+    pub fn split(&self, n: usize) -> (List<T>, List<T>) {
+        let mut p = self.head.clone();
+
+        let mut left = List::new();
+        let mut right = List::new();
+        
+        for idx in 0..self.size {
+            if let Some(ref node) = *p.clone().borrow() {
+                if idx < n {
+                    left.push_back(node.value);
+                } else {
+                    right.push_back(node.value);
+                }
+                p = node.next.clone();
+            } else {
+                break;
+            }
+        }
+
+        (left, right)
+    }
 }
 
 #[cfg(test)]
@@ -162,5 +184,92 @@ mod tests {
         result.push_after(1000, 500);
 
         assert_eq!("[0, 101, 100, -1, 201, 200, 1, 301, 300, 2, 401, 400, 3, 500]", format!("{:?}", result.to_vec()));
+    }
+
+    #[test]
+    fn split_works() {
+        let empty = List::<i32>::new();
+        let (left, right) = empty.split(0);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = empty.split(1);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = empty.split(100);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let mut one_elem = List::<i32>::new();
+        one_elem.push_back(1);
+        let (left, right) = one_elem.split(0);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[1]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = one_elem.split(1);
+        assert_eq!("[1]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = one_elem.split(2);
+        assert_eq!("[1]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = one_elem.split(100);
+        assert_eq!("[1]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let mut two_elems = List::<i32>::new();
+        two_elems.push_back(1);
+        two_elems.push_back(2);
+        let (left, right) = two_elems.split(0);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[1, 2]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = two_elems.split(1);
+        assert_eq!("[1]", format!("{:?}", left.to_vec()));
+        assert_eq!("[2]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = two_elems.split(2);
+        assert_eq!("[1, 2]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = two_elems.split(3);
+        assert_eq!("[1, 2]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = two_elems.split(100);
+        assert_eq!("[1, 2]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let mut three_elems = List::<i32>::new();
+        three_elems.push_back(1);
+        three_elems.push_back(2);
+        three_elems.push_back(3);
+
+        let (left, right) = three_elems.split(0);
+        assert_eq!("[]", format!("{:?}", left.to_vec()));
+        assert_eq!("[1, 2, 3]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = three_elems.split(1);
+        assert_eq!("[1]", format!("{:?}", left.to_vec()));
+        assert_eq!("[2, 3]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = three_elems.split(2);
+        assert_eq!("[1, 2]", format!("{:?}", left.to_vec()));
+        assert_eq!("[3]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = three_elems.split(3);
+        assert_eq!("[1, 2, 3]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = three_elems.split(4);
+        assert_eq!("[1, 2, 3]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
+        let (left, right) = three_elems.split(100);
+        assert_eq!("[1, 2, 3]", format!("{:?}", left.to_vec()));
+        assert_eq!("[]", format!("{:?}", right.to_vec()));
+
     }
 }
