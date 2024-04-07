@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct AccountID(Uuid);
 
 impl AccountID {
@@ -9,7 +9,7 @@ impl AccountID {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Account {
     pub id: AccountID,
     pub balance: u64,

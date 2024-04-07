@@ -14,7 +14,7 @@ pub enum BankError {
     TransferToItself,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Bank {
     accounts: HashMap<AccountID, Account>,
     operations_log: OperationsLog,
@@ -28,14 +28,51 @@ impl Bank {
         }
     }
 
-    pub fn register_account(&mut self, account: Account) -> Result<OperationID, BankError> {
+    pub fn restore<'a, I: Iterator<Item = &'a Operation>>(
+        operations: I,
+    ) -> Result<Bank, BankError> {
+        let mut bank = Self::new();
+
+        for operation in operations {
+            match operation.kind {
+                OperationKind::Register(account_id, balance) => {
+                    let mut account = Account::new(balance);
+                    account.id = account_id;
+                    bank.do_register_account(account)?;
+                }
+                OperationKind::Deposit(account_id, amount) => {
+                    bank.do_deposit(account_id, amount)?;
+                }
+                OperationKind::Withdraw(account_id, amount) => {
+                    bank.do_withdraw(account_id, amount)?;
+                }
+                OperationKind::Transfer(sender_id, reciever_id, amount) => {
+                    bank.do_transfer(sender_id, reciever_id, amount)?;
+                }
+            }
+
+            bank.operations_log.log_operation(*operation);
+        }
+
+        Ok(bank)
+    }
+
+    fn do_register_account(&mut self, account: Account) -> Result<(), BankError> {
         let account_id = account.id;
         if self.accounts.contains_key(&account_id) {
             return Err(BankError::AlreadyExists);
         }
 
         self.accounts.insert(account_id, account);
-        let operation_id = self.operations_log.log(OperationKind::Register(account_id));
+        Ok(())
+    }
+
+    pub fn register_account(&mut self, account: Account) -> Result<OperationID, BankError> {
+        self.do_register_account(account)?;
+
+        let operation_id = self
+            .operations_log
+            .log(OperationKind::Register(account.id, account.balance));
 
         Ok(operation_id)
     }
@@ -71,18 +108,44 @@ impl Bank {
         Ok(())
     }
 
-    pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+    fn do_deposit(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
         self.update_account_balance_by_amount(id, amount as i64)?;
+        Ok(())
+    }
+
+    pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+        self.do_deposit(id, amount)?;
 
         let operation_id = self.operations_log.log(OperationKind::Deposit(id, amount));
         Ok(operation_id)
     }
 
-    pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+    fn do_withdraw(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
         self.update_account_balance_by_amount(id, -(amount as i64))?;
+        Ok(())
+    }
+
+    pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+        self.do_withdraw(id, amount)?;
 
         let operation_id = self.operations_log.log(OperationKind::Withdraw(id, amount));
         Ok(operation_id)
+    }
+
+    fn do_transfer(
+        &mut self,
+        sender_id: AccountID,
+        reciever_id: AccountID,
+        amount: u64,
+    ) -> Result<(), BankError> {
+        if sender_id == reciever_id {
+            return Err(BankError::TransferToItself);
+        }
+
+        self.update_account_balance_by_amount(sender_id, -(amount as i64))?;
+        self.update_account_balance_by_amount(reciever_id, amount as i64)?;
+
+        Ok(())
     }
 
     pub fn transfer(
@@ -91,12 +154,7 @@ impl Bank {
         reciever_id: AccountID,
         amount: u64,
     ) -> Result<OperationID, BankError> {
-        if sender_id == reciever_id {
-            return Err(BankError::TransferToItself);
-        }
-
-        self.update_account_balance_by_amount(sender_id, -(amount as i64))?;
-        self.update_account_balance_by_amount(reciever_id, amount as i64)?;
+        self.do_transfer(sender_id, reciever_id, amount)?;
 
         let operation_id =
             self.operations_log
@@ -139,7 +197,7 @@ mod tests {
             bank.get_operation(operation1_id),
             Some(&Operation {
                 id: operation1_id,
-                kind: OperationKind::Register(account1_id)
+                kind: OperationKind::Register(account1_id, 100)
             })
         );
 
@@ -147,7 +205,7 @@ mod tests {
             bank.get_operation(operation2_id),
             Some(&Operation {
                 id: operation2_id,
-                kind: OperationKind::Register(account2_id)
+                kind: OperationKind::Register(account2_id, 200)
             })
         );
 
@@ -290,9 +348,9 @@ mod tests {
             .collect::<Vec<OperationKind>>();
 
         let expected_operations = vec![
-            OperationKind::Register(account1_id),
-            OperationKind::Register(account2_id),
-            OperationKind::Register(account3_id),
+            OperationKind::Register(account1_id, 100),
+            OperationKind::Register(account2_id, 200),
+            OperationKind::Register(account3_id, 300),
             OperationKind::Deposit(account1_id, 50),
             OperationKind::Withdraw(account2_id, 50),
             OperationKind::Transfer(account3_id, account2_id, 10),
@@ -330,7 +388,7 @@ mod tests {
             .collect::<Vec<OperationKind>>();
 
         let account1_expected_operations = vec![
-            OperationKind::Register(account1_id),
+            OperationKind::Register(account1_id, 100),
             OperationKind::Deposit(account1_id, 50),
             OperationKind::Deposit(account1_id, 150),
             OperationKind::Withdraw(account1_id, 10),
@@ -345,7 +403,7 @@ mod tests {
             .collect::<Vec<OperationKind>>();
 
         let account2_expected_operations = vec![
-            OperationKind::Register(account2_id),
+            OperationKind::Register(account2_id, 200),
             OperationKind::Withdraw(account2_id, 50),
             OperationKind::Transfer(account3_id, account2_id, 20),
             OperationKind::Transfer(account1_id, account2_id, 10),
@@ -359,10 +417,38 @@ mod tests {
             .collect::<Vec<OperationKind>>();
 
         let account3_expected_operations = vec![
-            OperationKind::Register(account3_id),
+            OperationKind::Register(account3_id, 300),
             OperationKind::Transfer(account3_id, account2_id, 20),
         ];
 
         assert_eq!(account3_expected_operations, account3_operations);
+    }
+
+    #[test]
+    fn restore_works() {
+        let mut bank1 = Bank::new();
+
+        let account1 = Account::new(100);
+        let account2 = Account::new(200);
+        let account3 = Account::new(300);
+
+        let account1_id = account1.id;
+        let account2_id = account2.id;
+        let account3_id = account3.id;
+
+        bank1.register_account(account1).unwrap();
+        bank1.register_account(account2).unwrap();
+        bank1.register_account(account3).unwrap();
+
+        bank1.deposit(account1_id, 50).unwrap();
+        bank1.withdraw(account2_id, 50).unwrap();
+        bank1.transfer(account3_id, account2_id, 20).unwrap();
+        bank1.deposit(account1_id, 150).unwrap();
+        bank1.withdraw(account1_id, 10).unwrap();
+        bank1.transfer(account1_id, account2_id, 10).unwrap();
+
+        let bank2 = Bank::restore(bank1.get_all_operations()).unwrap();
+
+        assert_eq!(bank1, bank2)
     }
 }

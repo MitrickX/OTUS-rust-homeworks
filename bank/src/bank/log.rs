@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OperationKind {
-    Register(AccountID),                 // account_id
+    Register(AccountID, u64),            // account_id
     Deposit(AccountID, u64),             // account_id, amount
     Withdraw(AccountID, u64),            // account_id, amount
     Transfer(AccountID, AccountID, u64), // sender_id, receiver_id, amount
@@ -19,13 +19,13 @@ impl OperationID {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Operation {
     pub id: OperationID,
     pub kind: OperationKind,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct OperationsLog {
     accounts_operations: HashMap<AccountID, Vec<OperationID>>,
     operations_by_id: HashMap<OperationID, usize>,
@@ -54,19 +54,16 @@ impl OperationsLog {
             .push(operation_id);
     }
 
-    pub fn log(&mut self, operation_kind: OperationKind) -> OperationID {
-        let operation_id = OperationID::new();
-        let operation = Operation {
-            id: operation_id,
-            kind: operation_kind,
-        };
+    pub fn log_operation(&mut self, operation: Operation) {
+        let operation_id = operation.id;
+        let operation_kind = operation.kind;
 
         let operation_idx = self.operations.len();
         self.operations_by_id.insert(operation_id, operation_idx);
         self.operations.push(operation);
 
         match operation_kind {
-            OperationKind::Register(account_id)
+            OperationKind::Register(account_id, _)
             | OperationKind::Deposit(account_id, _)
             | OperationKind::Withdraw(account_id, _) => {
                 self.log_for_account(account_id, operation_id);
@@ -76,6 +73,16 @@ impl OperationsLog {
                 self.log_for_account(reciever_id, operation_id);
             }
         }
+    }
+
+    pub fn log(&mut self, operation_kind: OperationKind) -> OperationID {
+        let operation_id = OperationID::new();
+        let operation = Operation {
+            id: operation_id,
+            kind: operation_kind,
+        };
+
+        self.log_operation(operation);
 
         operation_id
     }
