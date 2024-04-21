@@ -1,11 +1,23 @@
+use std::fmt;
 use uuid::Uuid;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct AccountID(Uuid);
+pub type Error = uuid::Error;
 
 impl AccountID {
     pub fn new() -> AccountID {
         AccountID(Uuid::new_v4())
+    }
+
+    pub fn parse_str(s: &str) -> Result<AccountID, Error> {
+        Uuid::parse_str(s).map(AccountID)
+    }
+}
+
+impl fmt::Display for AccountID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
