@@ -34,10 +34,10 @@ pub struct Bank {
     operations_log: OperationsLog,
 }
 
+pub type Result<T> = std::result::Result<T, BankError>;
+
 impl Bank {
-    pub fn restore<'a, I: Iterator<Item = &'a Operation>>(
-        operations: I,
-    ) -> Result<Bank, BankError> {
+    pub fn restore<'a, I: Iterator<Item = &'a Operation>>(operations: I) -> Result<Bank> {
         let mut bank = Self::default();
 
         for operation in operations {
@@ -68,7 +68,7 @@ impl Bank {
         Ok(bank)
     }
 
-    fn do_register_account(&mut self, account: Account) -> Result<(), BankError> {
+    fn do_register_account(&mut self, account: Account) -> Result<()> {
         let account_id = account.id;
         if self.accounts.contains_key(&account_id) {
             return Err(BankError::AlreadyExists);
@@ -78,7 +78,7 @@ impl Bank {
         Ok(())
     }
 
-    pub fn register_account(&mut self, account: Account) -> Result<OperationID, BankError> {
+    pub fn register_account(&mut self, account: Account) -> Result<OperationID> {
         self.do_register_account(account)?;
 
         let operation_id = self.operations_log.log(OperationKind::Register {
@@ -93,18 +93,14 @@ impl Bank {
         self.operations_log.get(operation_id)
     }
 
-    pub fn get_balance(&self, id: AccountID) -> Result<u64, BankError> {
+    pub fn get_balance(&self, id: AccountID) -> Result<u64> {
         match self.accounts.get(&id) {
             Some(account) => Ok(account.balance),
             None => Err(BankError::NotFound),
         }
     }
 
-    fn update_account_balance_by_amount(
-        &mut self,
-        id: AccountID,
-        amount: i64,
-    ) -> Result<(), BankError> {
+    fn update_account_balance_by_amount(&mut self, id: AccountID, amount: i64) -> Result<()> {
         if amount == 0 {
             return Err(BankError::ZeroAmount);
         }
@@ -120,11 +116,11 @@ impl Bank {
         Ok(())
     }
 
-    fn do_deposit(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
+    fn do_deposit(&mut self, id: AccountID, amount: u64) -> Result<()> {
         self.update_account_balance_by_amount(id, amount as i64)
     }
 
-    pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+    pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID> {
         self.do_deposit(id, amount)?;
 
         let operation_id = self
@@ -133,11 +129,11 @@ impl Bank {
         Ok(operation_id)
     }
 
-    fn do_withdraw(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
+    fn do_withdraw(&mut self, id: AccountID, amount: u64) -> Result<()> {
         self.update_account_balance_by_amount(id, -(amount as i64))
     }
 
-    pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
+    pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID> {
         self.do_withdraw(id, amount)?;
 
         let operation_id = self
@@ -151,7 +147,7 @@ impl Bank {
         sender_id: AccountID,
         reciever_id: AccountID,
         amount: u64,
-    ) -> Result<(), BankError> {
+    ) -> Result<()> {
         if sender_id == reciever_id {
             return Err(BankError::TransferToItself);
         }
@@ -167,7 +163,7 @@ impl Bank {
         sender_id: AccountID,
         reciever_id: AccountID,
         amount: u64,
-    ) -> Result<OperationID, BankError> {
+    ) -> Result<OperationID> {
         self.do_transfer(sender_id, reciever_id, amount)?;
 
         let operation_id = self.operations_log.log(OperationKind::Transfer {

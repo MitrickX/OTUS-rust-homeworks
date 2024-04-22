@@ -19,7 +19,8 @@ fn main() -> Result<()> {
 
         let mut reader = BufReader::new(&stream);
         let mut writer = stream.try_clone().unwrap();
-        handle(&mut context, &mut reader, &mut writer)?;
+        let mut terminal = std::io::stdout();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal)?;
     }
 
     Ok(())

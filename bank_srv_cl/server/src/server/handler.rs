@@ -4,6 +4,7 @@ use crate::bank::Bank;
 use crate::server::command::{parse_command, Command, ParseError};
 use std::io::{BufRead, Write};
 
+#[derive(Default)]
 pub struct Context {
     pub banks: Vec<Bank>,
     pub current_bank: usize,
@@ -95,13 +96,16 @@ fn handle_register_account<W: Write>(
     context: &mut Context,
     writer: &mut W,
 ) -> Result<()> {
+    if context.banks.is_empty() {
+        context.banks.push(Bank::default());
+    }
     let bank = &mut context.banks[context.current_bank];
     let account = Account::new(balance);
     match bank.register_account(account) {
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: account creation\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    "Bank: {}\nOp: account registration\nOpID: {}\nStatus: ok\nResult: {}\n\n",
                     context.current_bank + 1,
                     opperation_id,
                     account.id
@@ -112,7 +116,7 @@ fn handle_register_account<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: account creation\nStatus: error\nType: bank\nError: {}\n\n",
+                    "Bank: {}\nOp: account registration\nStatus: error\nType: bank\nError: {}\n\n",
                     context.current_bank, e
                 )
                 .as_bytes(),
@@ -297,7 +301,7 @@ fn handle_list_all_operations<W: Write>(context: &mut Context, writer: &mut W) -
 }
 
 fn handle_quit<W: Write>(writer: &mut W) -> Result<()> {
-    writer.write_all("Bye-byte\n\n".as_bytes())?;
+    writer.write_all("Bye bye\n\n".as_bytes())?;
 
     Ok(())
 }
@@ -340,17 +344,18 @@ fn handle_parse_error(e: ParseError, command: &str, writer: &mut impl Write) -> 
     Ok(())
 }
 
-pub fn handle<R: BufRead, W: Write>(
+pub fn handle<R: BufRead, W: Write, T: Write>(
     context: &mut Context,
     reader: &mut R,
     writer: &mut W,
+    terminal: &mut T,
 ) -> Result<()> {
     loop {
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(n) => {
                 if n == 0 {
-                    println!("Client disconnected");
+                    terminal.write_all("Client disconnected\n".as_bytes())?;
                     break;
                 }
 
@@ -358,7 +363,7 @@ pub fn handle<R: BufRead, W: Write>(
                     Ok(command) => {
                         handle_command(&command, context, writer)?;
                         if command == Command::Quit {
-                            println!("Client quited");
+                            terminal.write_all("Client quited\n".as_bytes())?;
                             break;
                         }
                     }
@@ -374,4 +379,90 @@ pub fn handle<R: BufRead, W: Write>(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bank::log::OperationKind;
+    use std::str::from_utf8;
+
+    #[test]
+    fn handle_empty_command_works() {
+        let mut context = Context::default();
+        let mut reader = "".as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        assert_eq!(
+            from_utf8(terminal.as_slice()).unwrap(),
+            "Client disconnected\n".to_owned()
+        );
+    }
+
+    #[test]
+    fn handle_quit_command_works() {
+        let mut context = Context::default();
+        let mut reader = "quit".as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        assert_eq!(
+            from_utf8(writer.as_slice()).unwrap(),
+            "Bye bye\n\n".to_owned()
+        );
+        assert_eq!(
+            from_utf8(terminal.as_slice()).unwrap(),
+            "Client quited\n".to_owned()
+        );
+    }
+
+    #[test]
+    fn handle_new_bank_command() {
+        let mut context = Context::default();
+        let mut reader = "new_bank".as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        assert_eq!(
+            from_utf8(writer.as_slice()).unwrap(),
+            "Bank: 1\nOp: bank creation\nStatus: ok\nResult: 1\n\n".to_owned(),
+        );
+    }
+
+    #[test]
+    fn handle_register_account_works() {
+        let mut context = Context::default();
+        let mut reader = "register_account 100".as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank]
+            .get_all_operations()
+            .collect();
+
+        let operation = operations[0];
+        let operation_id = operation.id;
+
+        let account_id = if let OperationKind::Register { id, .. } = operation.kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let expected = format!(
+            "Bank: 1\nOp: account registration\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+            operation_id, account_id,
+        );
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected,);
+    }
 }
