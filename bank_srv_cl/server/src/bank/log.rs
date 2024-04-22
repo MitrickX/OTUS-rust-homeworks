@@ -10,6 +10,25 @@ pub enum OperationKind {
     Transfer(AccountID, AccountID, u64), // sender_id, receiver_id, amount
 }
 
+impl std::fmt::Display for OperationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            OperationKind::Register(account_id, amount) => {
+                write!(f, "Register {} {}", account_id, amount)
+            }
+            OperationKind::Deposit(account_id, amount) => {
+                write!(f, "Deposit {} {}", account_id, amount)
+            }
+            OperationKind::Withdraw(account_id, ammount) => {
+                write!(f, "Withdraw {} {}", account_id, ammount)
+            }
+            OperationKind::Transfer(sender_id, receiver_id, amount) => {
+                write!(f, "Transfer {} {} {}", sender_id, receiver_id, amount)
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Default)]
 pub struct OperationID(Uuid);
 
@@ -29,6 +48,12 @@ impl std::fmt::Display for OperationID {
 pub struct Operation {
     pub id: OperationID,
     pub kind: OperationKind,
+}
+
+impl std::fmt::Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}: ({})", self.id, self.kind)
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]

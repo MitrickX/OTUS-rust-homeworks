@@ -80,7 +80,12 @@ pub fn parse_argument_uint(name: &str, value: &str) -> Result<u64> {
 }
 
 pub fn parse_command(command: &str) -> Result<Command> {
-    let parts: Vec<&str> = command.split(' ').map(|s| s.trim()).collect();
+    let parts: Vec<&str> = command
+        .split(' ')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
     if parts.is_empty() {
         return Err(ParseError::EmptyCommand);
     }
@@ -88,7 +93,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
     let command = parts[0];
 
     match command {
-        "get_balance" | "list_account_operations" => {
+        "get_balance" | "list_account_operations" | "get_account_operations" => {
             if parts.len() < 2 {
                 return Err(ParseError::RequireArguments(vec!["account_id".to_string()]));
             }
@@ -97,13 +102,15 @@ pub fn parse_command(command: &str) -> Result<Command> {
                 "get_balance" => Ok(Command::GetBalance {
                     id: parse_argument_account_id("account_id", parts[1])?,
                 }),
-                "list_account_operations" => Ok(Command::ListAccountOperations {
-                    id: parse_argument_account_id("account_id", parts[1])?,
-                }),
+                "list_account_operations" | "get_account_operations" => {
+                    Ok(Command::ListAccountOperations {
+                        id: parse_argument_account_id("account_id", parts[1])?,
+                    })
+                }
                 _ => unreachable!(),
             }
         }
-        "register_account" => {
+        "register_account" | "new_account" => {
             if parts.len() < 2 {
                 return Err(ParseError::RequireArguments(vec!["balance".to_string()]));
             }
@@ -158,7 +165,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
             }
         }
         "new_bank" => Ok(Command::NewBank),
-        "list_all_operations" => Ok(Command::ListAllOperations),
+        "list_all_operations" | "get_all_operations" => Ok(Command::ListAllOperations),
         "quit" => Ok(Command::Quit),
         _ => Err(ParseError::UnknownCommand),
     }
