@@ -14,6 +14,20 @@ pub enum BankError {
     TransferToItself,
 }
 
+impl std::fmt::Display for BankError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            BankError::NotFound => write!(f, "Account not found"),
+            BankError::AlreadyExists => write!(f, "Account already exists"),
+            BankError::ZeroAmmount => write!(f, "Zero ammount"),
+            BankError::InsufficientFunds => write!(f, "Insufficient funds"),
+            BankError::TransferToItself => write!(f, "Transfer to itself"),
+        }
+    }
+}
+
+impl std::error::Error for BankError {}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Bank {
     accounts: HashMap<AccountID, Account>,

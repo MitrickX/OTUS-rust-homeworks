@@ -19,6 +19,12 @@ impl OperationID {
     }
 }
 
+impl std::fmt::Display for OperationID {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Operation {
     pub id: OperationID,

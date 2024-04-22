@@ -2,7 +2,14 @@ use crate::bank::account::AccountID;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    Register {
+    NewBank,
+    ChangeBank {
+        id: u64,
+    },
+    RestoreBank {
+        id: u64,
+    },
+    RegisterAccount {
         balance: u64,
     },
     GetBalance {
@@ -42,7 +49,7 @@ impl std::fmt::Display for ParseError {
         match self {
             ParseError::EmptyCommand => write!(f, "empty command"),
             ParseError::RequireArguments(args) => {
-                write!(f, "require arguments: {:?}", args)
+                write!(f, "require arguments: {}", args.join(", "))
             }
             ParseError::InvalidArgumentUint(name, e) => {
                 write!(f, "invalid argument {name}: {e}")
@@ -96,12 +103,12 @@ pub fn parse_command(command: &str) -> Result<Command> {
                 _ => unreachable!(),
             }
         }
-        "register" => {
+        "register_account" => {
             if parts.len() < 2 {
                 return Err(ParseError::RequireArguments(vec!["balance".to_string()]));
             }
 
-            Ok(Command::Register {
+            Ok(Command::RegisterAccount {
                 balance: parse_argument_uint("balance", parts[1])?,
             })
         }
@@ -137,6 +144,20 @@ pub fn parse_command(command: &str) -> Result<Command> {
                 ammount: parse_argument_uint("ammount", parts[3])?,
             })
         }
+        "change_bank" | "restore_bank" => {
+            if parts.len() < 2 {
+                return Err(ParseError::RequireArguments(vec!["bank_id".to_string()]));
+            }
+
+            let id = parse_argument_uint("bank_id", parts[1])?;
+
+            match command {
+                "change_bank" => Ok(Command::ChangeBank { id }),
+                "restore_bank" => Ok(Command::RestoreBank { id }),
+                _ => unreachable!(),
+            }
+        }
+        "new_bank" => Ok(Command::NewBank),
         "list_all_operations" => Ok(Command::ListAllOperations),
         "quit" => Ok(Command::Quit),
         _ => Err(ParseError::UnknownCommand),
@@ -150,12 +171,12 @@ mod tests {
     #[test]
     fn parse_command_register_works() {
         assert_eq!(
-            parse_command("register").unwrap_err(),
+            parse_command("register_account").unwrap_err(),
             ParseError::RequireArguments(vec!["balance".to_string()]),
         );
 
         assert_eq!(
-            parse_command("register test").unwrap_err(),
+            parse_command("register_account test").unwrap_err(),
             ParseError::InvalidArgumentUint(
                 "balance".to_string(),
                 "test".parse::<u64>().unwrap_err()
@@ -163,8 +184,8 @@ mod tests {
         );
 
         assert_eq!(
-            parse_command("register 100").unwrap(),
-            Command::Register { balance: 100 },
+            parse_command("register_account 100").unwrap(),
+            Command::RegisterAccount { balance: 100 },
         );
     }
 
@@ -329,6 +350,53 @@ mod tests {
             parse_command("list_all_operations").unwrap(),
             Command::ListAllOperations
         );
+    }
+
+    #[test]
+    fn parse_command_change_bank_works() {
+        assert_eq!(
+            parse_command("change_bank").unwrap_err(),
+            ParseError::RequireArguments(vec!["bank_id".to_string()]),
+        );
+
+        assert_eq!(
+            parse_command("change_bank test").unwrap_err(),
+            ParseError::InvalidArgumentUint(
+                "bank_id".to_string(),
+                "test".parse::<u64>().unwrap_err(),
+            )
+        );
+
+        assert_eq!(
+            parse_command("change_bank 123").unwrap(),
+            Command::ChangeBank { id: 123 },
+        );
+    }
+
+    #[test]
+    fn parse_command_restore_bank_works() {
+        assert_eq!(
+            parse_command("restore_bank").unwrap_err(),
+            ParseError::RequireArguments(vec!["bank_id".to_string()]),
+        );
+
+        assert_eq!(
+            parse_command("restore_bank test").unwrap_err(),
+            ParseError::InvalidArgumentUint(
+                "bank_id".to_string(),
+                "test".parse::<u64>().unwrap_err(),
+            )
+        );
+
+        assert_eq!(
+            parse_command("restore_bank 123").unwrap(),
+            Command::RestoreBank { id: 123 },
+        );
+    }
+
+    #[test]
+    fn parse_command_new_bank_works() {
+        assert_eq!(parse_command("new_bank").unwrap(), Command::NewBank);
     }
 
     #[test]
