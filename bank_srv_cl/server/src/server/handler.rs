@@ -12,7 +12,7 @@ pub struct Context {
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn handle_new_bank<W: Write>(context: &mut Context, writer: &mut W) -> Result<()> {
-    context.banks.push(Bank::new());
+    context.banks.push(Bank::default());
     context.current_bank = context.banks.len() - 1;
     writer.write_all(
         format!(

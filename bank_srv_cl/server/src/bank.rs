@@ -35,17 +35,17 @@ pub struct Bank {
 }
 
 impl Bank {
-    pub fn new() -> Bank {
+    pub fn default() -> Bank {
         Bank {
             accounts: HashMap::new(),
-            operations_log: OperationsLog::new(),
+            operations_log: OperationsLog::default(),
         }
     }
 
     pub fn restore<'a, I: Iterator<Item = &'a Operation>>(
         operations: I,
     ) -> Result<Bank, BankError> {
-        let mut bank = Self::new();
+        let mut bank = Self::default();
 
         for operation in operations {
             match operation.kind {
@@ -128,8 +128,7 @@ impl Bank {
     }
 
     fn do_deposit(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
-        self.update_account_balance_by_amount(id, amount as i64)?;
-        Ok(())
+        self.update_account_balance_by_amount(id, amount as i64)
     }
 
     pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
@@ -142,8 +141,7 @@ impl Bank {
     }
 
     fn do_withdraw(&mut self, id: AccountID, amount: u64) -> Result<(), BankError> {
-        self.update_account_balance_by_amount(id, -(amount as i64))?;
-        Ok(())
+        self.update_account_balance_by_amount(id, -(amount as i64))
     }
 
     pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID, BankError> {
@@ -206,7 +204,7 @@ mod tests {
 
     #[test]
     fn register_account_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
         let account1 = Account::new(100);
         let account2 = Account::new(200);
 
@@ -249,7 +247,7 @@ mod tests {
 
     #[test]
     fn get_balance_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
 
         let account1 = Account::new(100);
         let account2 = Account::new(200);
@@ -270,7 +268,7 @@ mod tests {
 
     #[test]
     fn deposit_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
         let account = Account::new(100);
         let account_id = account.id;
 
@@ -297,7 +295,7 @@ mod tests {
 
     #[test]
     fn withdraw_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
         let account = Account::new(100);
         let account_id = account.id;
         bank.register_account(account).unwrap();
@@ -327,7 +325,7 @@ mod tests {
 
     #[test]
     fn transfer_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
         let sender = Account::new(100);
         let reciever = Account::new(200);
         let sender_id = sender.id;
@@ -365,7 +363,7 @@ mod tests {
 
     #[test]
     fn get_all_operations_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
 
         let account1 = Account::new(100);
         let account2 = Account::new(200);
@@ -421,7 +419,7 @@ mod tests {
 
     #[test]
     fn get_account_operations_works() {
-        let mut bank = Bank::new();
+        let mut bank = Bank::default();
 
         let account1 = Account::new(100);
         let account2 = Account::new(200);
@@ -523,7 +521,7 @@ mod tests {
 
     #[test]
     fn restore_works() {
-        let mut bank1 = Bank::new();
+        let mut bank1 = Bank::default();
 
         let account1 = Account::new(100);
         let account2 = Account::new(200);

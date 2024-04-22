@@ -81,7 +81,7 @@ pub struct OperationsLog {
 }
 
 impl OperationsLog {
-    pub fn new() -> OperationsLog {
+    pub fn default() -> OperationsLog {
         OperationsLog {
             accounts_operations: HashMap::new(),
             operations_by_id: HashMap::new(),
