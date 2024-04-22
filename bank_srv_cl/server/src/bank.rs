@@ -35,13 +35,6 @@ pub struct Bank {
 }
 
 impl Bank {
-    pub fn default() -> Bank {
-        Bank {
-            accounts: HashMap::new(),
-            operations_log: OperationsLog::default(),
-        }
-    }
-
     pub fn restore<'a, I: Iterator<Item = &'a Operation>>(
         operations: I,
     ) -> Result<Bank, BankError> {

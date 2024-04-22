@@ -81,14 +81,6 @@ pub struct OperationsLog {
 }
 
 impl OperationsLog {
-    pub fn default() -> OperationsLog {
-        OperationsLog {
-            accounts_operations: HashMap::new(),
-            operations_by_id: HashMap::new(),
-            operations: Vec::new(),
-        }
-    }
-
     pub fn get(&self, operation_id: OperationID) -> Option<&Operation> {
         self.operations_by_id
             .get(&operation_id)
