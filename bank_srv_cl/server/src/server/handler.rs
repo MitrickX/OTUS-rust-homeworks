@@ -314,8 +314,8 @@ fn handle_command(command: &Command, context: &mut Context, writer: &mut impl Wr
         Command::Transfer {
             sender,
             reciever,
-            ammount,
-        } => handle_transfer(sender, reciever, ammount, context, writer)?,
+            amount,
+        } => handle_transfer(sender, reciever, amount, context, writer)?,
 
         Command::ListAccountOperations { id } => {
             handle_list_account_operations(id, context, writer)?

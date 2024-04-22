@@ -26,7 +26,7 @@ pub enum Command {
     Transfer {
         sender: AccountID,
         reciever: AccountID,
-        ammount: u64,
+        amount: u64,
     },
     ListAccountOperations {
         id: AccountID,
@@ -123,12 +123,12 @@ pub fn parse_command(command: &str) -> Result<Command> {
             if parts.len() < 3 {
                 return Err(ParseError::RequireArguments(vec![
                     "account_id".to_string(),
-                    "ammount".to_string(),
+                    "amount".to_string(),
                 ]));
             }
 
             let id = parse_argument_account_id("account_id", parts[1])?;
-            let balance = parse_argument_uint("ammount", parts[2])?;
+            let balance = parse_argument_uint("amount", parts[2])?;
 
             match command {
                 "deposit" => Ok(Command::Deposit { id, balance }),
@@ -141,14 +141,14 @@ pub fn parse_command(command: &str) -> Result<Command> {
                 return Err(ParseError::RequireArguments(vec![
                     "sender_account_id".to_string(),
                     "reciever_account_id".to_string(),
-                    "ammount".to_string(),
+                    "amount".to_string(),
                 ]));
             }
 
             Ok(Command::Transfer {
                 sender: parse_argument_account_id("sender_account_id", parts[1])?,
                 reciever: parse_argument_account_id("reciever_account_id", parts[2])?,
-                ammount: parse_argument_uint("ammount", parts[3])?,
+                amount: parse_argument_uint("amount", parts[3])?,
             })
         }
         "change_bank" | "restore_bank" => {
@@ -223,7 +223,7 @@ mod tests {
     fn parse_command_deposit_works() {
         assert_eq!(
             parse_command("deposit").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string(), "ammount".to_string()]),
+            ParseError::RequireArguments(vec!["account_id".to_string(), "amount".to_string()]),
         );
 
         assert_eq!(
@@ -237,7 +237,7 @@ mod tests {
         assert_eq!(
             parse_command("deposit 97c56a4e-0d75-4a82-b683-628b8c219fa3 test").unwrap_err(),
             ParseError::InvalidArgumentUint(
-                "ammount".to_string(),
+                "amount".to_string(),
                 "test".parse::<u64>().unwrap_err(),
             )
         );
@@ -255,7 +255,7 @@ mod tests {
     fn parse_command_withdraw_works() {
         assert_eq!(
             parse_command("withdraw").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string(), "ammount".to_string()]),
+            ParseError::RequireArguments(vec!["account_id".to_string(), "amount".to_string()]),
         );
 
         assert_eq!(
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(
             parse_command("withdraw 97c56a4e-0d75-4a82-b683-628b8c219fa3 test").unwrap_err(),
             ParseError::InvalidArgumentUint(
-                "ammount".to_string(),
+                "amount".to_string(),
                 "test".parse::<u64>().unwrap_err(),
             )
         );
@@ -290,7 +290,7 @@ mod tests {
             ParseError::RequireArguments(vec![
                 "sender_account_id".to_string(),
                 "reciever_account_id".to_string(),
-                "ammount".to_string()
+                "amount".to_string()
             ]),
         );
 
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(
             parse_command("transfer 97c56a4e-0d75-4a82-b683-628b8c219fa3 12c56a4e-0d75-5a82-b683-728d8c219fa3 test").unwrap_err(),
             ParseError::InvalidArgumentUint(
-                "ammount".to_string(),
+                "amount".to_string(),
                 "test".parse::<u64>().unwrap_err(),
             )
         );
@@ -323,7 +323,7 @@ mod tests {
             Command::Transfer {
                 sender: AccountID::parse_str("97c56a4e-0d75-4a82-b683-628b8c219fa3").unwrap(),
                 reciever: AccountID::parse_str("12c56a4e-0d75-5a82-b683-728d8c219fa3").unwrap(),
-                ammount: 1000
+                amount: 1000
             }
         );
     }

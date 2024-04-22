@@ -4,26 +4,43 @@ use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OperationKind {
-    Register(AccountID, u64),            // account_id
-    Deposit(AccountID, u64),             // account_id, amount
-    Withdraw(AccountID, u64),            // account_id, amount
-    Transfer(AccountID, AccountID, u64), // sender_id, receiver_id, amount
+    Register {
+        id: AccountID,
+        balance: u64,
+    },
+    Deposit {
+        id: AccountID,
+        amount: u64,
+    },
+    Withdraw {
+        id: AccountID,
+        amount: u64,
+    },
+    Transfer {
+        sender_id: AccountID,
+        reciever_id: AccountID,
+        amount: u64,
+    },
 }
 
 impl std::fmt::Display for OperationKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            OperationKind::Register(account_id, amount) => {
-                write!(f, "Register {} {}", account_id, amount)
+            OperationKind::Register { id, balance } => {
+                write!(f, "Register {} {}", id, balance)
             }
-            OperationKind::Deposit(account_id, amount) => {
-                write!(f, "Deposit {} {}", account_id, amount)
+            OperationKind::Deposit { id, amount } => {
+                write!(f, "Deposit {} {}", id, amount)
             }
-            OperationKind::Withdraw(account_id, ammount) => {
-                write!(f, "Withdraw {} {}", account_id, ammount)
+            OperationKind::Withdraw { id, amount } => {
+                write!(f, "Withdraw {} {}", id, amount)
             }
-            OperationKind::Transfer(sender_id, receiver_id, amount) => {
-                write!(f, "Transfer {} {} {}", sender_id, receiver_id, amount)
+            OperationKind::Transfer {
+                sender_id,
+                reciever_id,
+                amount,
+            } => {
+                write!(f, "Transfer {} {} {}", sender_id, reciever_id, amount)
             }
         }
     }
@@ -94,12 +111,16 @@ impl OperationsLog {
         self.operations.push(operation);
 
         match operation_kind {
-            OperationKind::Register(account_id, _)
-            | OperationKind::Deposit(account_id, _)
-            | OperationKind::Withdraw(account_id, _) => {
-                self.log_for_account(account_id, operation_id);
+            OperationKind::Register { id, .. }
+            | OperationKind::Deposit { id, .. }
+            | OperationKind::Withdraw { id, .. } => {
+                self.log_for_account(id, operation_id);
             }
-            OperationKind::Transfer(sender_id, reciever_id, _) => {
+            OperationKind::Transfer {
+                sender_id,
+                reciever_id,
+                ..
+            } => {
                 self.log_for_account(sender_id, operation_id);
                 self.log_for_account(reciever_id, operation_id);
             }
