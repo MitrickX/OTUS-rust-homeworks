@@ -13,13 +13,21 @@ pub struct Context {
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn handle_new_bank<W: Write>(context: &mut Context, writer: &mut W) -> Result<()> {
+    let prev_bank_id = if context.banks.is_empty() {
+        0
+    } else {
+        context.current_bank + 1
+    };
+
     context.banks.push(Bank::default());
     context.current_bank = context.banks.len() - 1;
+
+    let current_bank_id = context.current_bank + 1;
+
     writer.write_all(
         format!(
             "Bank: {}\nStatus: ok\nResult: {}\n\n",
-            context.current_bank + 1,
-            context.current_bank + 1
+            prev_bank_id, current_bank_id
         )
         .as_bytes(),
     )?;
@@ -74,6 +82,7 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
                     .as_bytes(),
                 )?;
                 context.banks.push(new_bank);
+                context.current_bank = context.banks.len() - 1;
             }
             Err(e) => {
                 writer.write_all(
@@ -448,8 +457,44 @@ mod tests {
 
         assert_eq!(
             from_utf8(writer.as_slice()).unwrap(),
-            "Bank: 1\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 0\nStatus: ok\nResult: 1\n\n".to_owned(),
         );
+    }
+
+    #[test]
+    fn handle_change_bank_command() {
+        let mut context = Context::default();
+        let input = vec![
+            "new_bank",
+            "new_bank",
+            "new_bank",
+            "change_bank 2",
+            "change_bank 3",
+            "change_bank 1",
+            "change_bank 4",
+            "change_bank 100",
+            "change_bank 0",
+        ]
+        .join("\n");
+        let mut reader = input.as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let expected = vec![
+            "Bank: 0\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
+            "Bank: 2\nStatus: ok\nResult: 3\n\n".to_owned(),
+            "Bank: 3\nStatus: ok\nResult: 2\n\n".to_owned(),
+            "Bank: 2\nStatus: ok\nResult: 3\n\n".to_owned(),
+            "Bank: 3\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
+            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
+            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
+        ]
+        .join("");
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
 
     #[test]
@@ -798,6 +843,198 @@ mod tests {
             ),
             format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
             "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
+        ]
+        .join("");
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+    }
+
+    #[test]
+    fn handle_list_operations_works() {
+        let input = vec![
+            "register_account 100".to_owned(),
+            "register_account 50".to_owned(),
+        ]
+        .join("\n");
+
+        let mut reader = input.as_bytes();
+
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        let mut context = Context::default();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank]
+            .get_all_operations()
+            .collect();
+
+        let account1_id = if let OperationKind::Register { id, .. } = operations[0].kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let account2_id = if let OperationKind::Register { id, .. } = operations[1].kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let input = vec![
+            format!("deposit {} 100", account1_id.to_string()),
+            format!("deposit {} 250", account2_id.to_string()),
+            format!(
+                "transfer {} {} 50",
+                account1_id.to_string(),
+                account2_id.to_string()
+            ),
+            format!("withdraw {} 50", account2_id.to_string()),
+            "list_account_operations".to_owned(),
+            "list_account_operations test".to_owned(),
+            format!("list_account_operations {}", account1_id.to_string()),
+            "list_all_operations".to_owned(),
+        ]
+        .join("\n");
+
+        let mut reader = input.as_bytes();
+
+        let mut context = context.clone();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank]
+            .get_all_operations()
+            .collect();
+
+        let account1_operations =
+            context.banks[context.current_bank].get_account_operations(account1_id);
+
+        let expected = vec![
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operations[0].id, account1_id,
+            ),
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operations[1].id, account2_id,
+            ),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
+            format!(
+                "Command: list_account_operations\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::RequireArguments(vec!["account_id".to_owned()]),
+            ),
+            format!(
+                "Command: list_account_operations test\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::InvalidArgumentAccountID(
+                    "account_id".to_owned(),
+                    AccountID::parse_str("test").unwrap_err()
+                ),
+            ),
+            format!(
+                "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
+                operations_as_string(account1_operations)
+            ),
+            format!(
+                "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
+                operations_as_string(operations.into_iter())
+            ),
+        ]
+        .join("");
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+    }
+
+    #[test]
+    fn handle_restore_bank_works() {
+        let input = vec![
+            "register_account 100".to_owned(),
+            "register_account 50".to_owned(),
+        ]
+        .join("\n");
+
+        let mut reader = input.as_bytes();
+
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        let mut context = Context::default();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank]
+            .get_all_operations()
+            .collect();
+
+        let account1_id = if let OperationKind::Register { id, .. } = operations[0].kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let account2_id = if let OperationKind::Register { id, .. } = operations[1].kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let input = vec![
+            format!("deposit {} 100", account1_id.to_string()),
+            format!("deposit {} 250", account2_id.to_string()),
+            format!(
+                "transfer {} {} 50",
+                account1_id.to_string(),
+                account2_id.to_string()
+            ),
+            format!("withdraw {} 50", account2_id.to_string()),
+            "restore_bank".to_owned(),
+            "restore_bank test".to_owned(),
+            "restore_bank 100".to_owned(),
+            "restore_bank 1".to_owned(),
+            "list_all_operations".to_owned(),
+        ]
+        .join("\n");
+
+        let mut reader = input.as_bytes();
+
+        let mut context = context.clone();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank - 1]
+            .get_all_operations()
+            .collect();
+
+        let expected = vec![
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operations[0].id, account1_id,
+            ),
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operations[1].id, account2_id,
+            ),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
+            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
+            format!(
+                "Command: restore_bank\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::RequireArguments(vec!["bank_id".to_owned()]),
+            ),
+            format!(
+                "Command: restore_bank test\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::InvalidArgumentUint(
+                    "bank_id".to_owned(),
+                    "test".parse::<u64>().unwrap_err(),
+                ),
+            ),
+            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
+            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
+            format!(
+                "Bank: 2\nStatus: ok\nResult: \n{}\n\n",
+                operations_as_string(operations.into_iter())
+            ),
         ]
         .join("");
 
