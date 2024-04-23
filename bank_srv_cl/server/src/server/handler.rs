@@ -4,7 +4,7 @@ use crate::bank::Bank;
 use crate::server::command::{parse_command, Command, ParseError};
 use std::io::{BufRead, Write};
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct Context {
     pub banks: Vec<Bank>,
     pub current_bank: usize,
@@ -17,7 +17,7 @@ fn handle_new_bank<W: Write>(context: &mut Context, writer: &mut W) -> Result<()
     context.current_bank = context.banks.len() - 1;
     writer.write_all(
         format!(
-            "Bank: {}\nOp: bank creation\nStatus: ok\nResult: {}\n\n",
+            "Bank: {}\nStatus: ok\nResult: {}\n\n",
             context.current_bank + 1,
             context.current_bank + 1
         )
@@ -31,16 +31,16 @@ fn handle_change_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W) 
     if id < 1 || id > context.banks.len() as u64 {
         writer.write_all(
             format!(
-            "Bank: {}\nOp: bank changing\nStatus: error\nType: bank\nError: invalid bank id\n\n",
-            context.current_bank + 1,
-        )
+                "Bank: {}\nStatus: error\nType: bank\nError: invalid bank id\n\n",
+                context.current_bank + 1,
+            )
             .as_bytes(),
         )?;
     } else {
         let new_current_bank = (id - 1) as usize;
         writer.write_all(
             format!(
-                "Bank: {}\nOp: bank changing\nStatus: ok\nResult: {}\n\n",
+                "Bank: {}\nStatus: ok\nResult: {}\n\n",
                 context.current_bank + 1,
                 new_current_bank + 1,
             )
@@ -56,7 +56,7 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
     if id < 1 || id > context.banks.len() as u64 {
         writer.write_all(
             format!(
-                "Bank: {}\nOp: bank changing\nStatus: error\nType: bank\nError: invalid bank id\n\n",
+                "Bank: {}\nStatus: error\nType: bank\nError: invalid bank id\n\n",
                 context.current_bank + 1,
             )
             .as_bytes(),
@@ -67,7 +67,7 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
             Ok(new_bank) => {
                 writer.write_all(
                     format!(
-                        "Bank: {}\nOp: new bank restored\nStatus: ok\nResult: {}\n\n",
+                        "Bank: {}\nStatus: ok\nResult: {}\n\n",
                         context.current_bank + 1,
                         context.current_bank + 2,
                     )
@@ -78,7 +78,7 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
             Err(e) => {
                 writer.write_all(
                     format!(
-                        "Bank: {}\nOp: new bank restored\nStatus: error\nType: bank\nError: {}\n\n",
+                        "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
                         context.current_bank + 1,
                         e,
                     )
@@ -105,7 +105,7 @@ fn handle_register_account<W: Write>(
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: account registration\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    "Bank: {}\nOpID: {}\nStatus: ok\nResult: {}\n\n",
                     context.current_bank + 1,
                     opperation_id,
                     account.id
@@ -116,7 +116,7 @@ fn handle_register_account<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: account registration\nStatus: error\nType: bank\nError: {}\n\n",
+                    "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
                     context.current_bank, e
                 )
                 .as_bytes(),
@@ -137,7 +137,7 @@ fn handle_get_balance<W: Write>(
         Ok(balance) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: balance info requested\nStatus: ok\nResult: {}\n\n",
+                    "Bank: {}\nStatus: ok\nResult: {}\n\n",
                     context.current_bank + 1,
                     balance
                 )
@@ -147,7 +147,7 @@ fn handle_get_balance<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: balance info requested\nStatus: fail\nResult: {}\n\n",
+                    "Bank: {}\nStatus: fail\nResult: {}\n\n",
                     context.current_bank + 1,
                     e
                 )
@@ -170,7 +170,7 @@ fn handle_deposit<W: Write>(
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: deposit\nOpID: {}\nStatus: ok\n\n",
+                    "Bank: {}\nOpID: {}\nStatus: ok\n\n",
                     context.current_bank + 1,
                     opperation_id,
                 )
@@ -180,7 +180,7 @@ fn handle_deposit<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: deposit\nStatus: fail\nResult: {}\n\n",
+                    "Bank: {}\nStatus: fail\nResult: {}\n\n",
                     context.current_bank + 1,
                     e
                 )
@@ -203,7 +203,7 @@ fn handle_withdraw<W: Write>(
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: withdraw\nOpID: {}\nStatus: ok\n\n",
+                    "Bank: {}\nOpID: {}\nStatus: ok\n\n",
                     context.current_bank + 1,
                     opperation_id,
                 )
@@ -213,7 +213,7 @@ fn handle_withdraw<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: withdraw\nStatus: error\nType: bank\nError: {}\n\n",
+                    "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
                     context.current_bank + 1,
                     e
                 )
@@ -237,7 +237,7 @@ fn handle_transfer<W: Write>(
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: transfer\nOpID: {}\nStatus: ok\n\n",
+                    "Bank: {}\nOpID: {}\nStatus: ok\n\n",
                     context.current_bank + 1,
                     opperation_id,
                 )
@@ -247,7 +247,7 @@ fn handle_transfer<W: Write>(
         Err(e) => {
             writer.write_all(
                 format!(
-                    "Bank: {}\nOp: transfer\nStatus: error\nType: bank\nError: {}\n\n",
+                    "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
                     context.current_bank + 1,
                     e
                 )
@@ -274,7 +274,7 @@ fn handle_list_account_operations<W: Write>(
 
     writer.write_all(
         format!(
-            "Bank: {}\nOp: account operations list requested\nStatus: ok\nResult: \n{}\n\n",
+            "Bank: {}\nStatus: ok\nResult: \n{}\n\n",
             context.current_bank + 1,
             operations_as_string(operations),
         )
@@ -290,7 +290,7 @@ fn handle_list_all_operations<W: Write>(context: &mut Context, writer: &mut W) -
 
     writer.write_all(
         format!(
-            "Bank: {}\nOp: all operations list requested\nStatus: ok\nResult: \n{}\n\n",
+            "Bank: {}\nStatus: ok\nResult: \n{}\n\n",
             context.current_bank + 1,
             operations_as_string(operations),
         )
@@ -388,6 +388,22 @@ mod tests {
     use std::str::from_utf8;
 
     #[test]
+    fn unknown_command_works() {
+        let mut context = Context::default();
+        let mut reader = "test_command".as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        assert_eq!(
+            from_utf8(writer.as_slice()).unwrap(),
+            "Command: test_command\nStatus: error\nType: parse\nError: unknown command\n\n"
+                .to_owned()
+        );
+    }
+
+    #[test]
     fn handle_empty_command_works() {
         let mut context = Context::default();
         let mut reader = "".as_bytes();
@@ -432,14 +448,18 @@ mod tests {
 
         assert_eq!(
             from_utf8(writer.as_slice()).unwrap(),
-            "Bank: 1\nOp: bank creation\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 1\nStatus: ok\nResult: 1\n\n".to_owned(),
         );
     }
 
     #[test]
     fn handle_register_account_works() {
         let mut context = Context::default();
-        let mut reader = "register_account 100".as_bytes();
+
+        let input = vec!["register_account", "register_account 100"].join("\n");
+
+        let mut reader = input.as_bytes();
+
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
@@ -458,11 +478,73 @@ mod tests {
             AccountID::new()
         };
 
-        let expected = format!(
-            "Bank: 1\nOp: account registration\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-            operation_id, account_id,
-        );
+        let expected = vec![
+            format!(
+                "Command: register_account\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::RequireArguments(vec!["balance".to_string()]),
+            ),
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operation_id, account_id,
+            ),
+        ]
+        .join("");
 
-        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected,);
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+    }
+
+    #[test]
+    fn handle_get_balance_works() {
+        let mut reader = "register_account 100".as_bytes();
+
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        let mut context = Context::default();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let operations: Vec<&Operation> = context.banks[context.current_bank]
+            .get_all_operations()
+            .collect();
+
+        let account_id = if let OperationKind::Register { id, .. } = operations[0].kind {
+            id
+        } else {
+            AccountID::new()
+        };
+
+        let input = vec![
+            "get_balance".to_owned(),
+            "get_balance test".to_owned(),
+            format!("get_balance {}", account_id.to_string()),
+        ]
+        .join("\n");
+
+        let mut reader = input.as_bytes();
+
+        let mut context = context.clone();
+        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let expected = vec![
+            format!(
+                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                operations[0].id, account_id,
+            ),
+            format!(
+                "Command: get_balance\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::RequireArguments(vec!["account_id".to_string()]),
+            ),
+            format!(
+                "Command: get_balance test\nStatus: error\nType: parse\nError: {}\n\n",
+                ParseError::InvalidArgumentAccountID(
+                    "account_id".to_owned(),
+                    AccountID::parse_str("test").unwrap_err()
+                )
+            ),
+            format!("Bank: 1\nStatus: ok\nResult: {}\n\n", 100),
+        ]
+        .join("");
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
 }
