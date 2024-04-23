@@ -38,9 +38,17 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
     EmptyCommand,
-    RequireArguments(Vec<String>),
-    InvalidArgumentUint(String, std::num::ParseIntError),
-    InvalidArgumentAccountID(String, crate::bank::account::Error),
+    RequireArguments {
+        args: Vec<String>,
+    },
+    InvalidArgumentUint {
+        name: String,
+        e: std::num::ParseIntError,
+    },
+    InvalidArgumentAccountID {
+        name: String,
+        e: crate::bank::account::Error,
+    },
     UnknownCommand,
 }
 
@@ -48,13 +56,13 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ParseError::EmptyCommand => write!(f, "empty command"),
-            ParseError::RequireArguments(args) => {
+            ParseError::RequireArguments { args } => {
                 write!(f, "require arguments: {}", args.join(", "))
             }
-            ParseError::InvalidArgumentUint(name, e) => {
+            ParseError::InvalidArgumentUint { name, e } => {
                 write!(f, "invalid argument {name}: {e}")
             }
-            ParseError::InvalidArgumentAccountID(name, e) => {
+            ParseError::InvalidArgumentAccountID { name, e } => {
                 write!(f, "invalid account {name}: {e}")
             }
             ParseError::UnknownCommand => {
@@ -69,14 +77,17 @@ impl std::error::Error for ParseError {}
 pub type Result<T> = std::result::Result<T, ParseError>;
 
 pub fn parse_argument_account_id(name: &str, value: &str) -> Result<AccountID> {
-    AccountID::parse_str(value)
-        .map_err(|e| ParseError::InvalidArgumentAccountID(name.to_string(), e))
+    AccountID::parse_str(value).map_err(|e| ParseError::InvalidArgumentAccountID {
+        name: name.to_string(),
+        e,
+    })
 }
 
 pub fn parse_argument_uint(name: &str, value: &str) -> Result<u64> {
-    value
-        .parse()
-        .map_err(|e| ParseError::InvalidArgumentUint(name.to_string(), e))
+    value.parse().map_err(|e| ParseError::InvalidArgumentUint {
+        name: name.to_string(),
+        e,
+    })
 }
 
 pub fn parse_command(command: &str) -> Result<Command> {
@@ -95,7 +106,9 @@ pub fn parse_command(command: &str) -> Result<Command> {
     match command {
         "get_balance" | "list_account_operations" | "get_account_operations" => {
             if parts.len() < 2 {
-                return Err(ParseError::RequireArguments(vec!["account_id".to_string()]));
+                return Err(ParseError::RequireArguments {
+                    args: vec!["account_id".to_string()],
+                });
             }
 
             match command {
@@ -112,7 +125,9 @@ pub fn parse_command(command: &str) -> Result<Command> {
         }
         "register_account" | "new_account" => {
             if parts.len() < 2 {
-                return Err(ParseError::RequireArguments(vec!["balance".to_string()]));
+                return Err(ParseError::RequireArguments {
+                    args: vec!["balance".to_string()],
+                });
             }
 
             Ok(Command::RegisterAccount {
@@ -121,10 +136,9 @@ pub fn parse_command(command: &str) -> Result<Command> {
         }
         "deposit" | "withdraw" => {
             if parts.len() < 3 {
-                return Err(ParseError::RequireArguments(vec![
-                    "account_id".to_string(),
-                    "amount".to_string(),
-                ]));
+                return Err(ParseError::RequireArguments {
+                    args: vec!["account_id".to_string(), "amount".to_string()],
+                });
             }
 
             let id = parse_argument_account_id("account_id", parts[1])?;
@@ -138,11 +152,13 @@ pub fn parse_command(command: &str) -> Result<Command> {
         }
         "transfer" => {
             if parts.len() < 4 {
-                return Err(ParseError::RequireArguments(vec![
-                    "sender_account_id".to_string(),
-                    "reciever_account_id".to_string(),
-                    "amount".to_string(),
-                ]));
+                return Err(ParseError::RequireArguments {
+                    args: vec![
+                        "sender_account_id".to_string(),
+                        "reciever_account_id".to_string(),
+                        "amount".to_string(),
+                    ],
+                });
             }
 
             Ok(Command::Transfer {
@@ -153,7 +169,9 @@ pub fn parse_command(command: &str) -> Result<Command> {
         }
         "change_bank" | "restore_bank" => {
             if parts.len() < 2 {
-                return Err(ParseError::RequireArguments(vec!["bank_id".to_string()]));
+                return Err(ParseError::RequireArguments {
+                    args: vec!["bank_id".to_string()],
+                });
             }
 
             let id = parse_argument_uint("bank_id", parts[1])?;
@@ -179,15 +197,17 @@ mod tests {
     fn parse_command_register_works() {
         assert_eq!(
             parse_command("register_account").unwrap_err(),
-            ParseError::RequireArguments(vec!["balance".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["balance".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("register_account test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "balance".to_string(),
-                "test".parse::<u64>().unwrap_err()
-            ),
+            ParseError::InvalidArgumentUint {
+                name: "balance".to_string(),
+                e: "test".parse::<u64>().unwrap_err()
+            },
         );
 
         assert_eq!(
@@ -200,15 +220,17 @@ mod tests {
     fn parse_command_get_balance_works() {
         assert_eq!(
             parse_command("get_balance").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["account_id".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("get_balance test").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "account_id".to_string(),
-                AccountID::parse_str("test").unwrap_err()
-            ),
+            ParseError::InvalidArgumentAccountID {
+                name: "account_id".to_string(),
+                e: AccountID::parse_str("test").unwrap_err()
+            },
         );
 
         assert_eq!(
@@ -223,23 +245,25 @@ mod tests {
     fn parse_command_deposit_works() {
         assert_eq!(
             parse_command("deposit").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string(), "amount".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["account_id".to_string(), "amount".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("deposit test 123").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "account_id".to_string(),
-                AccountID::parse_str("test").unwrap_err()
-            ),
+            ParseError::InvalidArgumentAccountID {
+                name: "account_id".to_string(),
+                e: AccountID::parse_str("test").unwrap_err()
+            },
         );
 
         assert_eq!(
             parse_command("deposit 97c56a4e-0d75-4a82-b683-628b8c219fa3 test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "amount".to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            )
+            ParseError::InvalidArgumentUint {
+                name: "amount".to_string(),
+                e: "test".parse::<u64>().unwrap_err(),
+            }
         );
 
         assert_eq!(
@@ -255,23 +279,25 @@ mod tests {
     fn parse_command_withdraw_works() {
         assert_eq!(
             parse_command("withdraw").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string(), "amount".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["account_id".to_string(), "amount".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("withdraw test 123").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "account_id".to_string(),
-                AccountID::parse_str("test").unwrap_err()
-            ),
+            ParseError::InvalidArgumentAccountID {
+                name: "account_id".to_string(),
+                e: AccountID::parse_str("test").unwrap_err()
+            },
         );
 
         assert_eq!(
             parse_command("withdraw 97c56a4e-0d75-4a82-b683-628b8c219fa3 test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "amount".to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            )
+            ParseError::InvalidArgumentUint {
+                name: "amount".to_string(),
+                e: "test".parse::<u64>().unwrap_err(),
+            }
         );
 
         assert_eq!(
@@ -287,35 +313,37 @@ mod tests {
     fn parse_command_transfer_works() {
         assert_eq!(
             parse_command("transfer").unwrap_err(),
-            ParseError::RequireArguments(vec![
-                "sender_account_id".to_string(),
-                "reciever_account_id".to_string(),
-                "amount".to_string()
-            ]),
+            ParseError::RequireArguments {
+                args: vec![
+                    "sender_account_id".to_string(),
+                    "reciever_account_id".to_string(),
+                    "amount".to_string()
+                ]
+            },
         );
 
         assert_eq!(
             parse_command("transfer from to 123").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "sender_account_id".to_string(),
-                AccountID::parse_str("from").unwrap_err()
-            ),
+            ParseError::InvalidArgumentAccountID {
+                name: "sender_account_id".to_string(),
+                e: AccountID::parse_str("from").unwrap_err()
+            },
         );
 
         assert_eq!(
             parse_command("transfer 97c56a4e-0d75-4a82-b683-628b8c219fa3 to 123").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "reciever_account_id".to_string(),
-                AccountID::parse_str("to").unwrap_err()
-            )
+            ParseError::InvalidArgumentAccountID {
+                name: "reciever_account_id".to_string(),
+                e: AccountID::parse_str("to").unwrap_err()
+            }
         );
 
         assert_eq!(
             parse_command("transfer 97c56a4e-0d75-4a82-b683-628b8c219fa3 12c56a4e-0d75-5a82-b683-728d8c219fa3 test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "amount".to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            )
+            ParseError::InvalidArgumentUint{
+                name: "amount".to_string(),
+                e: "test".parse::<u64>().unwrap_err(),
+            }
         );
 
         assert_eq!(
@@ -332,15 +360,17 @@ mod tests {
     fn parse_command_list_account_operations_works() {
         assert_eq!(
             parse_command("list_account_operations").unwrap_err(),
-            ParseError::RequireArguments(vec!["account_id".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["account_id".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("list_account_operations test").unwrap_err(),
-            ParseError::InvalidArgumentAccountID(
-                "account_id".to_string(),
-                AccountID::parse_str("test").unwrap_err()
-            ),
+            ParseError::InvalidArgumentAccountID {
+                name: "account_id".to_string(),
+                e: AccountID::parse_str("test").unwrap_err()
+            },
         );
 
         assert_eq!(
@@ -363,15 +393,17 @@ mod tests {
     fn parse_command_change_bank_works() {
         assert_eq!(
             parse_command("change_bank").unwrap_err(),
-            ParseError::RequireArguments(vec!["bank_id".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["bank_id".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("change_bank test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "bank_id".to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            )
+            ParseError::InvalidArgumentUint {
+                name: "bank_id".to_string(),
+                e: "test".parse::<u64>().unwrap_err(),
+            }
         );
 
         assert_eq!(
@@ -384,15 +416,17 @@ mod tests {
     fn parse_command_restore_bank_works() {
         assert_eq!(
             parse_command("restore_bank").unwrap_err(),
-            ParseError::RequireArguments(vec!["bank_id".to_string()]),
+            ParseError::RequireArguments {
+                args: vec!["bank_id".to_string()]
+            },
         );
 
         assert_eq!(
             parse_command("restore_bank test").unwrap_err(),
-            ParseError::InvalidArgumentUint(
-                "bank_id".to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            )
+            ParseError::InvalidArgumentUint {
+                name: "bank_id".to_string(),
+                e: "test".parse::<u64>().unwrap_err(),
+            }
         );
 
         assert_eq!(

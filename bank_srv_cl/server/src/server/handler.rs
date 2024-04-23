@@ -526,7 +526,9 @@ mod tests {
         let expected = vec![
             format!(
                 "Command: register_account\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["balance".to_string()]),
+                ParseError::RequireArguments {
+                    args: vec!["balance".to_string()]
+                },
             ),
             format!(
                 "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
@@ -577,14 +579,16 @@ mod tests {
             ),
             format!(
                 "Command: get_balance\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["account_id".to_string()]),
+                ParseError::RequireArguments {
+                    args: vec!["account_id".to_string()]
+                },
             ),
             format!(
                 "Command: get_balance test\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID(
-                    "account_id".to_owned(),
-                    AccountID::parse_str("test").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID {
+                    name: "account_id".to_owned(),
+                    e: AccountID::parse_str("test").unwrap_err()
+                }
             ),
             format!("Bank: 1\nStatus: ok\nResult: {}\n\n", 100),
         ]
@@ -637,22 +641,24 @@ mod tests {
             ),
             format!(
                 "Command: deposit\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["account_id".to_owned(), "amount".to_owned()]),
+                ParseError::RequireArguments {
+                    args: vec!["account_id".to_owned(), "amount".to_owned()]
+                },
             ),
             format!(
                 "Command: deposit test 10\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID(
-                    "account_id".to_owned(),
-                    AccountID::parse_str("test").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID {
+                    name: "account_id".to_owned(),
+                    e: AccountID::parse_str("test").unwrap_err()
+                }
             ),
             format!(
                 "Command: deposit {} test\nStatus: error\nType: parse\nError: {}\n\n",
                 account_id.to_string(),
-                ParseError::InvalidArgumentUint(
-                    "amount".to_owned(),
-                    "test".parse::<u64>().unwrap_err(),
-                )
+                ParseError::InvalidArgumentUint {
+                    name: "amount".to_owned(),
+                    e: "test".parse::<u64>().unwrap_err(),
+                }
             ),
             format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
         ]
@@ -706,22 +712,24 @@ mod tests {
             ),
             format!(
                 "Command: withdraw\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["account_id".to_owned(), "amount".to_owned()]),
+                ParseError::RequireArguments {
+                    args: vec!["account_id".to_owned(), "amount".to_owned()]
+                },
             ),
             format!(
                 "Command: withdraw test 10\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID(
-                    "account_id".to_owned(),
-                    AccountID::parse_str("test").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID {
+                    name: "account_id".to_owned(),
+                    e: AccountID::parse_str("test").unwrap_err()
+                }
             ),
             format!(
                 "Command: withdraw {} test\nStatus: error\nType: parse\nError: {}\n\n",
                 account_id.to_string(),
-                ParseError::InvalidArgumentUint(
-                    "amount".to_owned(),
-                    "test".parse::<u64>().unwrap_err(),
-                )
+                ParseError::InvalidArgumentUint {
+                    name: "amount".to_owned(),
+                    e: "test".parse::<u64>().unwrap_err(),
+                }
             ),
             format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
             "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
@@ -806,34 +814,36 @@ mod tests {
             ),
             format!(
                 "Command: transfer\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec![
-                    "sender_account_id".to_owned(),
-                    "reciever_account_id".to_owned(),
-                    "amount".to_owned()
-                ]),
+                ParseError::RequireArguments{
+                    args: vec![
+                        "sender_account_id".to_owned(),
+                        "reciever_account_id".to_owned(),
+                        "amount".to_owned()
+                    ]
+                },
             ),
             format!(
                 "Command: transfer test1 test2 50\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID(
-                    "sender_account_id".to_owned(),
-                    AccountID::parse_str("test1").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID{
+                    name: "sender_account_id".to_owned(),
+                    e: AccountID::parse_str("test1").unwrap_err()
+                }
             ),
             format!(
                 "Command: transfer {} test2 50\nStatus: error\nType: parse\nError: {}\n\n",
                 account1_id.to_string(),
-                ParseError::InvalidArgumentAccountID(
-                    "reciever_account_id".to_owned(),
-                    AccountID::parse_str("test2").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID{
+                    name: "reciever_account_id".to_owned(),
+                    e: AccountID::parse_str("test2").unwrap_err()
+                }
             ),
             format!(
                 "Command: transfer test1 {} 50\nStatus: error\nType: parse\nError: {}\n\n",
                 account2_id.to_string(),
-                ParseError::InvalidArgumentAccountID(
-                    "sender_account_id".to_owned(),
-                    AccountID::parse_str("test1").unwrap_err()
-                )
+                ParseError::InvalidArgumentAccountID{
+                    name: "sender_account_id".to_owned(),
+                    e: AccountID::parse_str("test1").unwrap_err()
+                }
             ),
             format!(
                 "Command: transfer {} {} test\nStatus: error\nType: parse\nError: invalid argument amount: {}\n\n",
@@ -924,14 +934,16 @@ mod tests {
             format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
             format!(
                 "Command: list_account_operations\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["account_id".to_owned()]),
+                ParseError::RequireArguments {
+                    args: vec!["account_id".to_owned()]
+                },
             ),
             format!(
                 "Command: list_account_operations test\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID(
-                    "account_id".to_owned(),
-                    AccountID::parse_str("test").unwrap_err()
-                ),
+                ParseError::InvalidArgumentAccountID {
+                    name: "account_id".to_owned(),
+                    e: AccountID::parse_str("test").unwrap_err()
+                },
             ),
             format!(
                 "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
@@ -1020,14 +1032,16 @@ mod tests {
             format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
             format!(
                 "Command: restore_bank\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments(vec!["bank_id".to_owned()]),
+                ParseError::RequireArguments {
+                    args: vec!["bank_id".to_owned()]
+                },
             ),
             format!(
                 "Command: restore_bank test\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentUint(
-                    "bank_id".to_owned(),
-                    "test".parse::<u64>().unwrap_err(),
-                ),
+                ParseError::InvalidArgumentUint {
+                    name: "bank_id".to_owned(),
+                    e: "test".parse::<u64>().unwrap_err(),
+                },
             ),
             "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
             "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
