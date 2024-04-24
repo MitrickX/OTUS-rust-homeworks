@@ -4,8 +4,12 @@ use std::net::TcpListener;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+const ADDR: &'static str = "127.0.0.1:1337";
+
+// TODO: support multi clients (non-blocking serving)
+
 fn main() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:1337")?;
+    let listener = TcpListener::bind(ADDR)?;
 
     println!("Listening on {}", listener.local_addr()?);
 
