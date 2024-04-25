@@ -3,6 +3,7 @@ use crate::bank::log::Operation;
 use crate::bank::Bank;
 use crate::server::command::{parse_command, Command, ParseError};
 use std::io::{BufRead, Write};
+use std::sync::{Arc, RwLock};
 
 #[derive(Default, Clone, Debug)]
 pub struct Context {
@@ -10,15 +11,21 @@ pub struct Context {
     pub current_bank: usize,
 }
 
+type ARWLockContext = Arc<RwLock<Context>>;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn handle_new_bank<W: Write>(context: &mut Context, writer: &mut W) -> Result<()> {
+fn handle_new_bank<W: Write>(lock_context: ARWLockContext, writer: &mut W) -> Result<()> {
+    let context = lock_context.read().unwrap();
     let prev_bank_id = if context.banks.is_empty() {
         0
     } else {
         context.current_bank + 1
     };
 
+    drop(context);
+
+    let mut context = lock_context.write().unwrap();
     context.banks.push(Bank::default());
     context.current_bank = context.banks.len() - 1;
 
@@ -35,7 +42,12 @@ fn handle_new_bank<W: Write>(context: &mut Context, writer: &mut W) -> Result<()
     Ok(())
 }
 
-fn handle_change_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W) -> Result<()> {
+fn handle_change_bank<W: Write>(
+    id: u64,
+    lock_context: ARWLockContext,
+    writer: &mut W,
+) -> Result<()> {
+    let context = lock_context.read().unwrap();
     if id < 1 || id > context.banks.len() as u64 {
         writer.write_all(
             format!(
@@ -44,23 +56,54 @@ fn handle_change_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W) 
             )
             .as_bytes(),
         )?;
-    } else {
-        let new_current_bank = (id - 1) as usize;
-        writer.write_all(
-            format!(
-                "Bank: {}\nStatus: ok\nResult: {}\n\n",
-                context.current_bank + 1,
-                new_current_bank + 1,
-            )
-            .as_bytes(),
-        )?;
-        context.current_bank = new_current_bank;
+
+        return Ok(());
     }
+
+    drop(context);
+
+    let mut context = lock_context.write().unwrap();
+    let new_current_bank = (id - 1) as usize;
+
+    writer.write_all(
+        format!(
+            "Bank: {}\nStatus: ok\nResult: {}\n\n",
+            context.current_bank + 1,
+            new_current_bank + 1,
+        )
+        .as_bytes(),
+    )?;
+
+    context.current_bank = new_current_bank;
 
     Ok(())
 }
 
-fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W) -> Result<()> {
+fn handle_which_bank<W: Write>(lock_context: ARWLockContext, writer: &mut W) -> Result<()> {
+    let mut context = lock_context.write().unwrap();
+    if context.banks.is_empty() {
+        context.banks.push(Bank::default());
+    }
+
+    let current_bank = context.current_bank + 1;
+    writer.write_all(
+        format!(
+            "Bank: {}\nStatus: ok\nResult: {}\n\n",
+            current_bank, current_bank
+        )
+        .as_bytes(),
+    )?;
+
+    Ok(())
+}
+
+fn handle_restore_bank<W: Write>(
+    id: u64,
+    lock_context: ARWLockContext,
+    writer: &mut W,
+) -> Result<()> {
+    let context = lock_context.read().unwrap();
+
     if id < 1 || id > context.banks.len() as u64 {
         writer.write_all(
             format!(
@@ -69,31 +112,38 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
             )
             .as_bytes(),
         )?;
-    } else {
-        let src_bank = &mut context.banks[context.current_bank];
-        match Bank::restore(src_bank.get_all_operations()) {
-            Ok(new_bank) => {
-                writer.write_all(
-                    format!(
-                        "Bank: {}\nStatus: ok\nResult: {}\n\n",
-                        context.current_bank + 1,
-                        context.current_bank + 2,
-                    )
-                    .as_bytes(),
-                )?;
-                context.banks.push(new_bank);
-                context.current_bank = context.banks.len() - 1;
-            }
-            Err(e) => {
-                writer.write_all(
-                    format!(
-                        "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
-                        context.current_bank + 1,
-                        e,
-                    )
-                    .as_bytes(),
-                )?;
-            }
+
+        return Ok(());
+    }
+
+    drop(context);
+
+    let mut context = lock_context.write().unwrap();
+    let current_bank = context.current_bank;
+
+    let src_bank = &mut context.banks[current_bank];
+    match Bank::restore(src_bank.get_all_operations()) {
+        Ok(new_bank) => {
+            writer.write_all(
+                format!(
+                    "Bank: {}\nStatus: ok\nResult: {}\n\n",
+                    current_bank + 1,
+                    current_bank + 2,
+                )
+                .as_bytes(),
+            )?;
+            context.banks.push(new_bank);
+            context.current_bank = context.banks.len() - 1;
+        }
+        Err(e) => {
+            writer.write_all(
+                format!(
+                    "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
+                    current_bank + 1,
+                    e,
+                )
+                .as_bytes(),
+            )?;
         }
     }
 
@@ -102,14 +152,18 @@ fn handle_restore_bank<W: Write>(id: u64, context: &mut Context, writer: &mut W)
 
 fn handle_register_account<W: Write>(
     balance: u64,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
+    let mut context = lock_context.write().unwrap();
     if context.banks.is_empty() {
         context.banks.push(Bank::default());
     }
-    let bank = &mut context.banks[context.current_bank];
+
+    let current_bank = context.current_bank;
+    let bank = &mut context.banks[current_bank];
     let account = Account::new(balance);
+
     match bank.register_account(account) {
         Ok(opperation_id) => {
             writer.write_all(
@@ -138,9 +192,10 @@ fn handle_register_account<W: Write>(
 
 fn handle_get_balance<W: Write>(
     id: AccountID,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
+    let context = lock_context.read().unwrap();
     let bank = &context.banks[context.current_bank];
     match bank.get_balance(id) {
         Ok(balance) => {
@@ -171,16 +226,18 @@ fn handle_get_balance<W: Write>(
 fn handle_deposit<W: Write>(
     id: AccountID,
     amount: u64,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
-    let bank = &mut context.banks[context.current_bank];
+    let mut context = lock_context.write().unwrap();
+    let current_bank = context.current_bank;
+    let bank = &mut context.banks[current_bank];
     match bank.deposit(id, amount) {
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
                     "Bank: {}\nOpID: {}\nStatus: ok\n\n",
-                    context.current_bank + 1,
+                    current_bank + 1,
                     opperation_id,
                 )
                 .as_bytes(),
@@ -190,7 +247,7 @@ fn handle_deposit<W: Write>(
             writer.write_all(
                 format!(
                     "Bank: {}\nStatus: fail\nResult: {}\n\n",
-                    context.current_bank + 1,
+                    current_bank + 1,
                     e
                 )
                 .as_bytes(),
@@ -204,16 +261,18 @@ fn handle_deposit<W: Write>(
 fn handle_withdraw<W: Write>(
     id: AccountID,
     amount: u64,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
-    let bank = &mut context.banks[context.current_bank];
+    let mut context = lock_context.write().unwrap();
+    let current_bank = context.current_bank;
+    let bank = &mut context.banks[current_bank];
     match bank.withdraw(id, amount) {
         Ok(opperation_id) => {
             writer.write_all(
                 format!(
                     "Bank: {}\nOpID: {}\nStatus: ok\n\n",
-                    context.current_bank + 1,
+                    current_bank + 1,
                     opperation_id,
                 )
                 .as_bytes(),
@@ -223,7 +282,7 @@ fn handle_withdraw<W: Write>(
             writer.write_all(
                 format!(
                     "Bank: {}\nStatus: error\nType: bank\nError: {}\n\n",
-                    context.current_bank + 1,
+                    current_bank + 1,
                     e
                 )
                 .as_bytes(),
@@ -238,10 +297,12 @@ fn handle_transfer<W: Write>(
     sender: AccountID,
     reciever: AccountID,
     amount: u64,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
-    let bank = &mut context.banks[context.current_bank];
+    let mut context = lock_context.write().unwrap();
+    let current_bank = context.current_bank;
+    let bank = &mut context.banks[current_bank];
     match bank.transfer(sender, reciever, amount) {
         Ok(opperation_id) => {
             writer.write_all(
@@ -275,9 +336,10 @@ fn operations_as_string<'a, I: Iterator<Item = &'a Operation>>(operations: I) ->
 
 fn handle_list_account_operations<W: Write>(
     id: AccountID,
-    context: &mut Context,
+    lock_context: ARWLockContext,
     writer: &mut W,
 ) -> Result<()> {
+    let context = lock_context.read().unwrap();
     let bank = &context.banks[context.current_bank];
     let operations = bank.get_account_operations(id);
 
@@ -293,7 +355,11 @@ fn handle_list_account_operations<W: Write>(
     Ok(())
 }
 
-fn handle_list_all_operations<W: Write>(context: &mut Context, writer: &mut W) -> Result<()> {
+fn handle_list_all_operations<W: Write>(
+    lock_context: ARWLockContext,
+    writer: &mut W,
+) -> Result<()> {
+    let context = lock_context.read().unwrap();
     let bank = &context.banks[context.current_bank];
     let operations = bank.get_all_operations();
 
@@ -315,25 +381,32 @@ fn handle_quit<W: Write>(writer: &mut W) -> Result<()> {
     Ok(())
 }
 
-fn handle_command(command: &Command, context: &mut Context, writer: &mut impl Write) -> Result<()> {
+fn handle_command(
+    command: &Command,
+    lock_context: ARWLockContext,
+    writer: &mut impl Write,
+) -> Result<()> {
     match *command {
-        Command::NewBank => handle_new_bank(context, writer)?,
-        Command::ChangeBank { id } => handle_change_bank(id, context, writer)?,
-        Command::RestoreBank { id } => handle_restore_bank(id, context, writer)?,
-        Command::RegisterAccount { balance } => handle_register_account(balance, context, writer)?,
-        Command::GetBalance { id } => handle_get_balance(id, context, writer)?,
-        Command::Deposit { id, balance } => handle_deposit(id, balance, context, writer)?,
-        Command::Withdraw { id, balance } => handle_withdraw(id, balance, context, writer)?,
+        Command::NewBank => handle_new_bank(lock_context, writer)?,
+        Command::ChangeBank { id } => handle_change_bank(id, lock_context, writer)?,
+        Command::RestoreBank { id } => handle_restore_bank(id, lock_context, writer)?,
+        Command::WhichBank => handle_which_bank(lock_context, writer)?,
+        Command::RegisterAccount { balance } => {
+            handle_register_account(balance, lock_context, writer)?
+        }
+        Command::GetBalance { id } => handle_get_balance(id, lock_context, writer)?,
+        Command::Deposit { id, balance } => handle_deposit(id, balance, lock_context, writer)?,
+        Command::Withdraw { id, balance } => handle_withdraw(id, balance, lock_context, writer)?,
         Command::Transfer {
             sender,
             reciever,
             amount,
-        } => handle_transfer(sender, reciever, amount, context, writer)?,
+        } => handle_transfer(sender, reciever, amount, lock_context, writer)?,
 
         Command::ListAccountOperations { id } => {
-            handle_list_account_operations(id, context, writer)?
+            handle_list_account_operations(id, lock_context, writer)?
         }
-        Command::ListAllOperations => handle_list_all_operations(context, writer)?,
+        Command::ListAllOperations => handle_list_all_operations(lock_context, writer)?,
         Command::Quit => handle_quit(writer)?,
     };
 
@@ -354,11 +427,12 @@ fn handle_parse_error(e: ParseError, command: &str, writer: &mut impl Write) -> 
 }
 
 pub fn handle<R: BufRead, W: Write, T: Write>(
-    context: &mut Context,
+    lock_context: ARWLockContext,
     reader: &mut R,
     writer: &mut W,
     terminal: &mut T,
 ) -> Result<()> {
+    let original_lock_context = lock_context;
     loop {
         let mut line = String::new();
         match reader.read_line(&mut line) {
@@ -370,7 +444,8 @@ pub fn handle<R: BufRead, W: Write, T: Write>(
 
                 match parse_command(&line) {
                     Ok(command) => {
-                        handle_command(&command, context, writer)?;
+                        let lock_context = Arc::clone(&original_lock_context);
+                        handle_command(&command, lock_context, writer)?;
                         if command == Command::Quit {
                             terminal.write_all("Client quited\n".as_bytes())?;
                             break;
@@ -398,12 +473,21 @@ mod tests {
 
     #[test]
     fn unknown_command_works() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
         let mut reader = "test_command".as_bytes();
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+
+        handle(
+            Arc::clone(&lock_context),
+            &mut reader,
+            &mut writer,
+            &mut terminal,
+        )
+        .unwrap();
 
         assert_eq!(
             from_utf8(writer.as_slice()).unwrap(),
@@ -414,12 +498,14 @@ mod tests {
 
     #[test]
     fn handle_empty_command_works() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
         let mut reader = "".as_bytes();
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
         assert_eq!(
             from_utf8(terminal.as_slice()).unwrap(),
@@ -429,12 +515,14 @@ mod tests {
 
     #[test]
     fn handle_quit_command_works() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
         let mut reader = "quit".as_bytes();
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
         assert_eq!(
             from_utf8(writer.as_slice()).unwrap(),
@@ -448,12 +536,14 @@ mod tests {
 
     #[test]
     fn handle_new_bank_command() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
         let mut reader = "new_bank".as_bytes();
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
         assert_eq!(
             from_utf8(writer.as_slice()).unwrap(),
@@ -462,8 +552,32 @@ mod tests {
     }
 
     #[test]
+    fn handle_which_bank_command() {
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
+        let input = vec!["which_bank", "new_bank", "which_bank"].join("\n");
+        let mut reader = input.as_bytes();
+
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let expected = vec![
+            "Bank: 1\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
+            "Bank: 2\nStatus: ok\nResult: 2\n\n".to_owned(),
+        ]
+        .join("");
+
+        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+    }
+
+    #[test]
     fn handle_change_bank_command() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+
         let input = vec![
             "new_bank",
             "new_bank",
@@ -480,7 +594,8 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
         let expected = vec![
             "Bank: 0\nStatus: ok\nResult: 1\n\n".to_owned(),
             "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
@@ -499,7 +614,7 @@ mod tests {
 
     #[test]
     fn handle_register_account_works() {
-        let mut context = Context::default();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
 
         let input = vec!["register_account", "register_account 100"].join("\n");
 
@@ -508,8 +623,12 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
 
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let lock_context = Arc::clone(&original_lock_context);
+        let context = lock_context.read().unwrap();
         let operations: Vec<&Operation> = context.banks[context.current_bank]
             .get_all_operations()
             .collect();
@@ -547,8 +666,15 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
+
+        // TODO: hanging here, why?
+
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let lock_context = Arc::clone(&original_lock_context);
+        let context = lock_context.read().unwrap();
 
         let operations: Vec<&Operation> = context.banks[context.current_bank]
             .get_all_operations()
@@ -569,8 +695,8 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
         let expected = vec![
             format!(
@@ -604,17 +730,23 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let account_id = if let OperationKind::Register { id, .. } = operations[0].kind {
-            id
-        } else {
-            AccountID::new()
+        let account_id = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let current_bank = context.current_bank;
+            let operations: Vec<&Operation> =
+                context.banks[current_bank].get_all_operations().collect();
+
+            if let OperationKind::Register { id, .. } = operations[0].kind {
+                id
+            } else {
+                AccountID::new()
+            }
         };
 
         let input = vec![
@@ -627,42 +759,46 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        let expected = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let expected = vec![
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[0].id, account_id,
-            ),
-            format!(
-                "Command: deposit\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments {
-                    args: vec!["account_id".to_owned(), "amount".to_owned()]
-                },
-            ),
-            format!(
-                "Command: deposit test 10\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID {
-                    name: "account_id".to_owned(),
-                    e: AccountID::parse_str("test").unwrap_err()
-                }
-            ),
-            format!(
-                "Command: deposit {} test\nStatus: error\nType: parse\nError: {}\n\n",
-                account_id.to_string(),
-                ParseError::InvalidArgumentUint {
-                    name: "amount".to_owned(),
-                    e: "test".parse::<u64>().unwrap_err(),
-                }
-            ),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
-        ]
-        .join("");
+            vec![
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[0].id, account_id,
+                ),
+                format!(
+                    "Command: deposit\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::RequireArguments {
+                        args: vec!["account_id".to_owned(), "amount".to_owned()]
+                    },
+                ),
+                format!(
+                    "Command: deposit test 10\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::InvalidArgumentAccountID {
+                        name: "account_id".to_owned(),
+                        e: AccountID::parse_str("test").unwrap_err()
+                    }
+                ),
+                format!(
+                    "Command: deposit {} test\nStatus: error\nType: parse\nError: {}\n\n",
+                    account_id.to_string(),
+                    ParseError::InvalidArgumentUint {
+                        name: "amount".to_owned(),
+                        e: "test".parse::<u64>().unwrap_err(),
+                    }
+                ),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
+            ]
+            .join("")
+        };
 
         assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
@@ -674,17 +810,24 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let account_id = if let OperationKind::Register { id, .. } = operations[0].kind {
-            id
-        } else {
-            AccountID::new()
+        let account_id = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
+
+            if let OperationKind::Register { id, .. } = operations[0].kind {
+                id
+            } else {
+                AccountID::new()
+            }
         };
 
         let input = vec![
@@ -698,43 +841,47 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        let expected = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let expected = vec![
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[0].id, account_id,
-            ),
-            format!(
-                "Command: withdraw\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments {
-                    args: vec!["account_id".to_owned(), "amount".to_owned()]
-                },
-            ),
-            format!(
-                "Command: withdraw test 10\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID {
-                    name: "account_id".to_owned(),
-                    e: AccountID::parse_str("test").unwrap_err()
-                }
-            ),
-            format!(
-                "Command: withdraw {} test\nStatus: error\nType: parse\nError: {}\n\n",
-                account_id.to_string(),
-                ParseError::InvalidArgumentUint {
-                    name: "amount".to_owned(),
-                    e: "test".parse::<u64>().unwrap_err(),
-                }
-            ),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
-            "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
-        ]
-        .join("");
+            vec![
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[0].id, account_id,
+                ),
+                format!(
+                    "Command: withdraw\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::RequireArguments {
+                        args: vec!["account_id".to_owned(), "amount".to_owned()]
+                    },
+                ),
+                format!(
+                    "Command: withdraw test 10\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::InvalidArgumentAccountID {
+                        name: "account_id".to_owned(),
+                        e: AccountID::parse_str("test").unwrap_err()
+                    }
+                ),
+                format!(
+                    "Command: withdraw {} test\nStatus: error\nType: parse\nError: {}\n\n",
+                    account_id.to_string(),
+                    ParseError::InvalidArgumentUint {
+                        name: "amount".to_owned(),
+                        e: "test".parse::<u64>().unwrap_err(),
+                    }
+                ),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[1].id),
+                "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
+            ]
+            .join("")
+        };
 
         assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
@@ -752,23 +899,31 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let account1_id = if let OperationKind::Register { id, .. } = operations[0].kind {
-            id
-        } else {
-            AccountID::new()
-        };
+        let (account1_id, account2_id) = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
 
-        let account2_id = if let OperationKind::Register { id, .. } = operations[1].kind {
-            id
-        } else {
-            AccountID::new()
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
+
+            (
+                if let OperationKind::Register { id, .. } = operations[0].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+                if let OperationKind::Register { id, .. } = operations[1].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+            )
         };
 
         let input = vec![
@@ -796,65 +951,69 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        let expected = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let expected = vec![
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[0].id, account1_id,
-            ),
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[1].id, account2_id,
-            ),
-            format!(
-                "Command: transfer\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments{
-                    args: vec![
-                        "sender_account_id".to_owned(),
-                        "reciever_account_id".to_owned(),
-                        "amount".to_owned()
-                    ]
-                },
-            ),
-            format!(
-                "Command: transfer test1 test2 50\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID{
-                    name: "sender_account_id".to_owned(),
-                    e: AccountID::parse_str("test1").unwrap_err()
-                }
-            ),
-            format!(
-                "Command: transfer {} test2 50\nStatus: error\nType: parse\nError: {}\n\n",
-                account1_id.to_string(),
-                ParseError::InvalidArgumentAccountID{
-                    name: "reciever_account_id".to_owned(),
-                    e: AccountID::parse_str("test2").unwrap_err()
-                }
-            ),
-            format!(
-                "Command: transfer test1 {} 50\nStatus: error\nType: parse\nError: {}\n\n",
-                account2_id.to_string(),
-                ParseError::InvalidArgumentAccountID{
-                    name: "sender_account_id".to_owned(),
-                    e: AccountID::parse_str("test1").unwrap_err()
-                }
-            ),
-            format!(
-                "Command: transfer {} {} test\nStatus: error\nType: parse\nError: invalid argument amount: {}\n\n",
-                account1_id.to_string(),
-                account2_id.to_string(),
-                "test".parse::<u64>().unwrap_err(),
-            ),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
-            "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
-        ]
-        .join("");
+            vec![
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[0].id, account1_id,
+                ),
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[1].id, account2_id,
+                ),
+                format!(
+                    "Command: transfer\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::RequireArguments{
+                        args: vec![
+                            "sender_account_id".to_owned(),
+                            "reciever_account_id".to_owned(),
+                            "amount".to_owned()
+                        ]
+                    },
+                ),
+                format!(
+                    "Command: transfer test1 test2 50\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::InvalidArgumentAccountID{
+                        name: "sender_account_id".to_owned(),
+                        e: AccountID::parse_str("test1").unwrap_err()
+                    }
+                ),
+                format!(
+                    "Command: transfer {} test2 50\nStatus: error\nType: parse\nError: {}\n\n",
+                    account1_id.to_string(),
+                    ParseError::InvalidArgumentAccountID{
+                        name: "reciever_account_id".to_owned(),
+                        e: AccountID::parse_str("test2").unwrap_err()
+                    }
+                ),
+                format!(
+                    "Command: transfer test1 {} 50\nStatus: error\nType: parse\nError: {}\n\n",
+                    account2_id.to_string(),
+                    ParseError::InvalidArgumentAccountID{
+                        name: "sender_account_id".to_owned(),
+                        e: AccountID::parse_str("test1").unwrap_err()
+                    }
+                ),
+                format!(
+                    "Command: transfer {} {} test\nStatus: error\nType: parse\nError: invalid argument amount: {}\n\n",
+                    account1_id.to_string(),
+                    account2_id.to_string(),
+                    "test".parse::<u64>().unwrap_err(),
+                ),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
+                "Bank: 1\nStatus: error\nType: bank\nError: Insufficient funds\n\n".to_owned(),
+            ]
+            .join("")
+        };
 
         assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
@@ -872,23 +1031,30 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let account1_id = if let OperationKind::Register { id, .. } = operations[0].kind {
-            id
-        } else {
-            AccountID::new()
-        };
+        let (account1_id, account2_id) = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let account2_id = if let OperationKind::Register { id, .. } = operations[1].kind {
-            id
-        } else {
-            AccountID::new()
+            (
+                if let OperationKind::Register { id, .. } = operations[0].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+                if let OperationKind::Register { id, .. } = operations[1].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+            )
         };
 
         let input = vec![
@@ -909,52 +1075,56 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        let expected = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let account1_operations =
-            context.banks[context.current_bank].get_account_operations(account1_id);
+            let account1_operations =
+                context.banks[context.current_bank].get_account_operations(account1_id);
 
-        let expected = vec![
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[0].id, account1_id,
-            ),
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[1].id, account2_id,
-            ),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
-            format!(
-                "Command: list_account_operations\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments {
-                    args: vec!["account_id".to_owned()]
-                },
-            ),
-            format!(
-                "Command: list_account_operations test\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentAccountID {
-                    name: "account_id".to_owned(),
-                    e: AccountID::parse_str("test").unwrap_err()
-                },
-            ),
-            format!(
-                "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
-                operations_as_string(account1_operations)
-            ),
-            format!(
-                "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
-                operations_as_string(operations.into_iter())
-            ),
-        ]
-        .join("");
+            vec![
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[0].id, account1_id,
+                ),
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[1].id, account2_id,
+                ),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
+                format!(
+                    "Command: list_account_operations\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::RequireArguments {
+                        args: vec!["account_id".to_owned()]
+                    },
+                ),
+                format!(
+                    "Command: list_account_operations test\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::InvalidArgumentAccountID {
+                        name: "account_id".to_owned(),
+                        e: AccountID::parse_str("test").unwrap_err()
+                    },
+                ),
+                format!(
+                    "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
+                    operations_as_string(account1_operations)
+                ),
+                format!(
+                    "Bank: 1\nStatus: ok\nResult: \n{}\n\n",
+                    operations_as_string(operations.into_iter())
+                ),
+            ]
+            .join("")
+        };
 
         assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }
@@ -972,23 +1142,30 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let mut context = Context::default();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let original_lock_context = Arc::new(RwLock::new(Context::default()));
+        let lock_context = Arc::clone(&original_lock_context);
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank]
-            .get_all_operations()
-            .collect();
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let account1_id = if let OperationKind::Register { id, .. } = operations[0].kind {
-            id
-        } else {
-            AccountID::new()
-        };
+        let (account1_id, account2_id) = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
+            let operations: Vec<&Operation> = context.banks[context.current_bank]
+                .get_all_operations()
+                .collect();
 
-        let account2_id = if let OperationKind::Register { id, .. } = operations[1].kind {
-            id
-        } else {
-            AccountID::new()
+            (
+                if let OperationKind::Register { id, .. } = operations[0].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+                if let OperationKind::Register { id, .. } = operations[1].kind {
+                    id
+                } else {
+                    AccountID::new()
+                },
+            )
         };
 
         let input = vec![
@@ -1010,47 +1187,52 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        let mut context = context.clone();
-        handle(&mut context, &mut reader, &mut writer, &mut terminal).unwrap();
+        let lock_context = Arc::clone(&original_lock_context);
+        handle(lock_context, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        let operations: Vec<&Operation> = context.banks[context.current_bank - 1]
-            .get_all_operations()
-            .collect();
+        let expected = {
+            let lock_context = Arc::clone(&original_lock_context);
+            let context = lock_context.read().unwrap();
 
-        let expected = vec![
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[0].id, account1_id,
-            ),
-            format!(
-                "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
-                operations[1].id, account2_id,
-            ),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
-            format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
-            format!(
-                "Command: restore_bank\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::RequireArguments {
-                    args: vec!["bank_id".to_owned()]
-                },
-            ),
-            format!(
-                "Command: restore_bank test\nStatus: error\nType: parse\nError: {}\n\n",
-                ParseError::InvalidArgumentUint {
-                    name: "bank_id".to_owned(),
-                    e: "test".parse::<u64>().unwrap_err(),
-                },
-            ),
-            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
-            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
-            format!(
-                "Bank: 2\nStatus: ok\nResult: \n{}\n\n",
-                operations_as_string(operations.into_iter())
-            ),
-        ]
-        .join("");
+            let operations: Vec<&Operation> = context.banks[context.current_bank - 1]
+                .get_all_operations()
+                .collect();
+
+            vec![
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[0].id, account1_id,
+                ),
+                format!(
+                    "Bank: 1\nOpID: {}\nStatus: ok\nResult: {}\n\n",
+                    operations[1].id, account2_id,
+                ),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[2].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[3].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[4].id),
+                format!("Bank: 1\nOpID: {}\nStatus: ok\n\n", operations[5].id),
+                format!(
+                    "Command: restore_bank\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::RequireArguments {
+                        args: vec!["bank_id".to_owned()]
+                    },
+                ),
+                format!(
+                    "Command: restore_bank test\nStatus: error\nType: parse\nError: {}\n\n",
+                    ParseError::InvalidArgumentUint {
+                        name: "bank_id".to_owned(),
+                        e: "test".parse::<u64>().unwrap_err(),
+                    },
+                ),
+                "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
+                "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
+                format!(
+                    "Bank: 2\nStatus: ok\nResult: \n{}\n\n",
+                    operations_as_string(operations.into_iter())
+                ),
+            ]
+            .join("")
+        };
 
         assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
     }

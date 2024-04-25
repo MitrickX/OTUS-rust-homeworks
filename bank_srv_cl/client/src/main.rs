@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::TcpStream;
 use std::str::from_utf8;
 
-const ADDR: &'static str = "127.0.0.1:1337";
+const ADDR: &str = "127.0.0.1:1337";
 
 fn main() {
     let stream = TcpStream::connect(ADDR).unwrap();

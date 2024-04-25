@@ -9,6 +9,7 @@ pub enum Command {
     RestoreBank {
         id: u64,
     },
+    WhichBank,
     RegisterAccount {
         balance: u64,
     },
@@ -183,6 +184,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
             }
         }
         "new_bank" => Ok(Command::NewBank),
+        "which_bank" => Ok(Command::WhichBank),
         "list_all_operations" | "get_all_operations" => Ok(Command::ListAllOperations),
         "quit" => Ok(Command::Quit),
         _ => Err(ParseError::UnknownCommand),
@@ -438,6 +440,11 @@ mod tests {
     #[test]
     fn parse_command_new_bank_works() {
         assert_eq!(parse_command("new_bank").unwrap(), Command::NewBank);
+    }
+
+    #[test]
+    fn parse_which_bank_works() {
+        assert_eq!(parse_command("which_bank").unwrap(), Command::WhichBank);
     }
 
     #[test]
