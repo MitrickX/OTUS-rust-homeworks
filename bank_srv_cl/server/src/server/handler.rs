@@ -381,6 +381,31 @@ fn handle_quit<W: Write>(writer: &mut W) -> Result<()> {
     Ok(())
 }
 
+fn handle_help<W: Write>(writer: &mut W) -> Result<()> {
+    writer.write_all("Supported commands:\n".as_bytes())?;
+    writer.write_all("  new_bank\n".as_bytes())?;
+    writer.write_all("  change_bank <bank_id>\n".as_bytes())?;
+    writer.write_all("  restore_bank <bank_id>\n".as_bytes())?;
+    writer.write_all("  which_bank\n".as_bytes())?;
+    writer.write_all("  register_account <balance>\n".as_bytes())?;
+    writer.write_all("  new_account <balance> - alias for register_account\n".as_bytes())?;
+    writer.write_all("  get_balance <account_id>\n".as_bytes())?;
+    writer.write_all("  deposit <account_id> <amount>\n".as_bytes())?;
+    writer.write_all("  withdraw <account_id> <amount>\n".as_bytes())?;
+    writer
+        .write_all("  transfer <sender_account_id> <reciever_account_id> <amount>\n".as_bytes())?;
+    writer.write_all("  list_account_operations <account_id>\n".as_bytes())?;
+    writer.write_all(
+        "  get_account_operations <account_id> - alias for list_account_operations\n".as_bytes(),
+    )?;
+    writer.write_all("  list_all_operations\n".as_bytes())?;
+    writer.write_all("  get_all_operations - alias for list_all_operations\n".as_bytes())?;
+    writer.write_all("  quit\n".as_bytes())?;
+    writer.write_all("\n".as_bytes())?;
+
+    Ok(())
+}
+
 fn handle_command(
     command: &Command,
     lock_context: ARWLockContext,
@@ -408,6 +433,7 @@ fn handle_command(
         }
         Command::ListAllOperations => handle_list_all_operations(lock_context, writer)?,
         Command::Quit => handle_quit(writer)?,
+        Command::Help => handle_help(writer)?,
     };
 
     Ok(())

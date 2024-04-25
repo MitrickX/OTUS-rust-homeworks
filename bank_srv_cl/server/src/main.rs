@@ -1,14 +1,11 @@
 use server::server::handler::{handle, Context};
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, RwLock};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const ADDR: &str = "127.0.0.1:1337";
-
-// TODO: support multithreads (multiclients)
-// TODO: support help
 
 fn main() -> Result<()> {
     let listener = TcpListener::bind(ADDR)?;
@@ -24,6 +21,13 @@ fn main() -> Result<()> {
         std::thread::spawn(move || loop {
             let mut reader = BufReader::new(&stream);
             let mut writer = stream.try_clone().unwrap();
+
+            writer
+                .write_all(
+                    "Welcome to bank application\nPrint 'help' and press Enter to see the list of commands\n".as_bytes(),
+                )
+                .unwrap();
+
             let mut terminal = std::io::stdout();
             let lock_context = Arc::clone(&lock_context);
 

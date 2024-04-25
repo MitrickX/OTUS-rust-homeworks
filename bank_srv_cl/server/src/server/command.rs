@@ -33,6 +33,7 @@ pub enum Command {
         id: AccountID,
     },
     ListAllOperations,
+    Help,
     Quit,
 }
 
@@ -187,6 +188,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
         "which_bank" => Ok(Command::WhichBank),
         "list_all_operations" | "get_all_operations" => Ok(Command::ListAllOperations),
         "quit" => Ok(Command::Quit),
+        "help" => Ok(Command::Help),
         _ => Err(ParseError::UnknownCommand),
     }
 }
