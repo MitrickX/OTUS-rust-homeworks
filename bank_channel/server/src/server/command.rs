@@ -1,6 +1,6 @@
 use crate::bank::account::AccountID;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Command {
     NewBank,
     ChangeBank {
@@ -26,7 +26,7 @@ pub enum Command {
     },
     Transfer {
         sender: AccountID,
-        reciever: AccountID,
+        receiver: AccountID,
         amount: u64,
     },
     ListAccountOperations {
@@ -157,7 +157,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
                 return Err(ParseError::RequireArguments {
                     args: vec![
                         "sender_account_id".to_string(),
-                        "reciever_account_id".to_string(),
+                        "receiver_account_id".to_string(),
                         "amount".to_string(),
                     ],
                 });
@@ -165,7 +165,7 @@ pub fn parse_command(command: &str) -> Result<Command> {
 
             Ok(Command::Transfer {
                 sender: parse_argument_account_id("sender_account_id", parts[1])?,
-                reciever: parse_argument_account_id("reciever_account_id", parts[2])?,
+                receiver: parse_argument_account_id("receiver_account_id", parts[2])?,
                 amount: parse_argument_uint("amount", parts[3])?,
             })
         }
@@ -320,7 +320,7 @@ mod tests {
             ParseError::RequireArguments {
                 args: vec![
                     "sender_account_id".to_string(),
-                    "reciever_account_id".to_string(),
+                    "receiver_account_id".to_string(),
                     "amount".to_string()
                 ]
             },
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(
             parse_command("transfer 97c56a4e-0d75-4a82-b683-628b8c219fa3 to 123").unwrap_err(),
             ParseError::InvalidArgumentAccountID {
-                name: "reciever_account_id".to_string(),
+                name: "receiver_account_id".to_string(),
                 e: AccountID::parse_str("to").unwrap_err()
             }
         );
@@ -354,7 +354,7 @@ mod tests {
             parse_command("transfer 97c56a4e-0d75-4a82-b683-628b8c219fa3 12c56a4e-0d75-5a82-b683-728d8c219fa3 1000").unwrap(),
             Command::Transfer {
                 sender: AccountID::parse_str("97c56a4e-0d75-4a82-b683-628b8c219fa3").unwrap(),
-                reciever: AccountID::parse_str("12c56a4e-0d75-5a82-b683-728d8c219fa3").unwrap(),
+                receiver: AccountID::parse_str("12c56a4e-0d75-5a82-b683-728d8c219fa3").unwrap(),
                 amount: 1000
             }
         );

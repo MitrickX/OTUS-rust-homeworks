@@ -18,7 +18,7 @@ pub enum OperationKind {
     },
     Transfer {
         sender_id: AccountID,
-        reciever_id: AccountID,
+        receiver_id: AccountID,
         amount: u64,
     },
 }
@@ -37,14 +37,16 @@ impl std::fmt::Display for OperationKind {
             }
             OperationKind::Transfer {
                 sender_id,
-                reciever_id,
+                receiver_id,
                 amount,
             } => {
-                write!(f, "Transfer {} {} {}", sender_id, reciever_id, amount)
+                write!(f, "Transfer {} {} {}", sender_id, receiver_id, amount)
             }
         }
     }
 }
+
+pub type Error = uuid::Error;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Default)]
 pub struct OperationID(Uuid);
@@ -52,6 +54,10 @@ pub struct OperationID(Uuid);
 impl OperationID {
     pub fn new() -> OperationID {
         OperationID(Uuid::new_v4())
+    }
+
+    pub fn parse_str(s: &str) -> Result<OperationID, Error> {
+        Uuid::parse_str(s).map(OperationID)
     }
 }
 
@@ -110,11 +116,11 @@ impl OperationsLog {
             }
             OperationKind::Transfer {
                 sender_id,
-                reciever_id,
+                receiver_id,
                 ..
             } => {
                 self.log_for_account(sender_id, operation_id);
-                self.log_for_account(reciever_id, operation_id);
+                self.log_for_account(receiver_id, operation_id);
             }
         }
     }

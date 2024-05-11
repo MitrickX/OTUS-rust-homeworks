@@ -55,10 +55,10 @@ impl Bank {
                 }
                 OperationKind::Transfer {
                     sender_id,
-                    reciever_id,
+                    receiver_id,
                     amount,
                 } => {
-                    bank.do_transfer(sender_id, reciever_id, amount)?;
+                    bank.do_transfer(sender_id, receiver_id, amount)?;
                 }
             }
 
@@ -145,15 +145,15 @@ impl Bank {
     fn do_transfer(
         &mut self,
         sender_id: AccountID,
-        reciever_id: AccountID,
+        receiver_id: AccountID,
         amount: u64,
     ) -> Result<()> {
-        if sender_id == reciever_id {
+        if sender_id == receiver_id {
             return Err(BankError::TransferToItself);
         }
 
         self.update_account_balance_by_amount(sender_id, -(amount as i64))?;
-        self.update_account_balance_by_amount(reciever_id, amount as i64)?;
+        self.update_account_balance_by_amount(receiver_id, amount as i64)?;
 
         Ok(())
     }
@@ -161,14 +161,14 @@ impl Bank {
     pub fn transfer(
         &mut self,
         sender_id: AccountID,
-        reciever_id: AccountID,
+        receiver_id: AccountID,
         amount: u64,
     ) -> Result<OperationID> {
-        self.do_transfer(sender_id, reciever_id, amount)?;
+        self.do_transfer(sender_id, receiver_id, amount)?;
 
         let operation_id = self.operations_log.log(OperationKind::Transfer {
             sender_id,
-            reciever_id,
+            receiver_id,
             amount,
         });
 
@@ -316,19 +316,19 @@ mod tests {
     fn transfer_works() {
         let mut bank = Bank::default();
         let sender = Account::new(100);
-        let reciever = Account::new(200);
+        let receiver = Account::new(200);
         let sender_id = sender.id;
-        let reciever_id = reciever.id;
+        let receiver_id = receiver.id;
 
         bank.register_account(sender).unwrap();
-        bank.register_account(reciever).unwrap();
+        bank.register_account(receiver).unwrap();
 
         assert_eq!(
-            bank.transfer(sender_id, reciever_id, 0),
+            bank.transfer(sender_id, receiver_id, 0),
             Err(BankError::ZeroAmount)
         );
         assert_eq!(
-            bank.transfer(sender_id, reciever_id, 1000),
+            bank.transfer(sender_id, receiver_id, 1000),
             Err(BankError::InsufficientFunds)
         );
         assert_eq!(
@@ -336,18 +336,18 @@ mod tests {
             Err(BankError::TransferToItself)
         );
 
-        let operation_id = bank.transfer(sender_id, reciever_id, 50).unwrap();
+        let operation_id = bank.transfer(sender_id, receiver_id, 50).unwrap();
         assert_eq!(
             bank.get_operation(operation_id).unwrap().kind,
             OperationKind::Transfer {
                 sender_id,
-                reciever_id,
+                receiver_id,
                 amount: 50
             },
         );
 
         assert_eq!(bank.get_balance(sender_id).unwrap(), 50);
-        assert_eq!(bank.get_balance(reciever_id).unwrap(), 250);
+        assert_eq!(bank.get_balance(receiver_id).unwrap(), 250);
     }
 
     #[test]
@@ -398,7 +398,7 @@ mod tests {
             },
             OperationKind::Transfer {
                 sender_id: account3_id,
-                reciever_id: account2_id,
+                receiver_id: account2_id,
                 amount: 10,
             },
         ];
@@ -453,7 +453,7 @@ mod tests {
             },
             OperationKind::Transfer {
                 sender_id: account1_id,
-                reciever_id: account2_id,
+                receiver_id: account2_id,
                 amount: 10,
             },
         ];
@@ -476,12 +476,12 @@ mod tests {
             },
             OperationKind::Transfer {
                 sender_id: account3_id,
-                reciever_id: account2_id,
+                receiver_id: account2_id,
                 amount: 20,
             },
             OperationKind::Transfer {
                 sender_id: account1_id,
-                reciever_id: account2_id,
+                receiver_id: account2_id,
                 amount: 10,
             },
         ];
@@ -500,7 +500,7 @@ mod tests {
             },
             OperationKind::Transfer {
                 sender_id: account3_id,
-                reciever_id: account2_id,
+                receiver_id: account2_id,
                 amount: 20,
             },
         ];
