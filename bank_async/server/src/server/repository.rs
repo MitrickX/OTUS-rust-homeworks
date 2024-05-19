@@ -118,8 +118,14 @@ impl Repository {
     }
 
     pub fn get_all_operations(&self) -> impl Iterator<Item = &Operation> {
-        let bank = &self.banks[self.current_bank];
-        bank.get_all_operations()
+        let result: Vec<&Operation> = if self.banks.is_empty() {
+            Vec::new()
+        } else {
+            let bank = &self.banks[self.current_bank];
+            bank.get_all_operations().collect()
+        };
+
+        result.into_iter()
     }
 }
 

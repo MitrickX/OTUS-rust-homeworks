@@ -2,8 +2,11 @@ use server::server::actor::repository_actor;
 use server::server::command::Command;
 use server::server::handler::handle;
 use server::server::repository::Repository;
-use std::sync::mpsc::{channel, Sender};
-use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpListener,
+    sync::{mpsc::unbounded_channel, oneshot::Sender},
+};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -20,11 +23,11 @@ async fn main() -> Result<()> {
 
         println!("New client connected on {}", addr);
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        let actor_handle = std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         tokio::spawn(async move {
@@ -55,8 +58,6 @@ Print 'help' and press Enter to see the list of commands
                 }
             };
         });
-
-        actor_handle.join().unwrap();
     }
 }
 
@@ -72,7 +73,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_command_works() {
         let mut terminal = Vec::new();
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "test_command".as_bytes();
         let mut writer = Vec::new();
@@ -91,7 +92,7 @@ mod tests {
     async fn handle_empty_command_works() {
         let mut terminal = Vec::new();
 
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "".as_bytes();
         let mut writer = Vec::new();
@@ -109,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn handle_quit_command_works() {
         let mut terminal = Vec::new();
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "quit".as_bytes();
         let mut writer = Vec::new();
@@ -129,14 +130,14 @@ mod tests {
     #[tokio::test]
     async fn handle_new_bank_command() {
         let mut terminal = Vec::new();
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "new_bank".as_bytes();
         let mut writer = Vec::new();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -152,15 +153,15 @@ mod tests {
     #[tokio::test]
     async fn handle_which_bank_command() {
         let mut terminal = Vec::new();
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
         let input = vec!["which_bank", "new_bank", "which_bank"].join("\n");
         let reader = input.as_bytes();
         let mut writer = Vec::new();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -181,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn handle_change_bank_command() {
         let mut terminal = Vec::new();
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
         let input = vec![
             "new_bank",
@@ -198,9 +199,9 @@ mod tests {
         let reader = input.as_bytes();
         let mut writer = Vec::new();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -227,15 +228,15 @@ mod tests {
     #[tokio::test]
     async fn handle_register_account_works() {
         let mut terminal = Vec::new();
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
         let input = vec!["register_account", "register_account 100"].join("\n");
         let reader = input.as_bytes();
         let mut writer = Vec::new();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -277,11 +278,11 @@ mod tests {
 
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -356,11 +357,11 @@ mod tests {
 
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -455,11 +456,11 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -566,11 +567,11 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -710,23 +711,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_list_operations_empty_case_works() {
+        let input = vec!["get_all_operations"].join("\n");
+        let reader = input.as_bytes();
+        let mut writer = Vec::new();
+        let mut terminal = Vec::new();
+
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
+
+        tokio::spawn(async move {
+            let mut repository = Repository::default();
+            repository_actor(&mut repository, &mut receiver).await;
+        });
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
+
+        let result = from_utf8(writer.as_slice()).unwrap();
+
+        assert_eq!(
+            "Bank: 0\nStatus: ok\nResult:\nno operations yet\n\n",
+            result
+        );
+    }
+
+    #[tokio::test]
     async fn handle_list_operations_works() {
-        let input = vec![
-            "register_account 100".to_owned(),
-            "register_account 50".to_owned(),
-        ]
-        .join("\n");
+        let input = vec!["register_account 100", "register_account 50"].join("\n");
 
         let reader = input.as_bytes();
 
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -813,7 +836,7 @@ mod tests {
             result[7]
         );
 
-        let re_pattern = r"Bank: 1\nStatus: ok\nResult: \n(.*)\n(.*)\n(.*)";
+        let re_pattern = r"Bank: 1\nStatus: ok\nResult:\n(.*)\n(.*)\n(.*)";
         let re = Regex::new(re_pattern).unwrap();
 
         assert!(re.is_match(&result[8]));
@@ -850,7 +873,7 @@ mod tests {
         assert_eq!(account1_id, sender_account_id);
         assert_eq!(account2_id, receiver_account_id);
 
-        let re_pattern = r"Bank: 1\nStatus: ok\nResult: \n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)";
+        let re_pattern = r"Bank: 1\nStatus: ok\nResult:\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)";
         let re = Regex::new(re_pattern).unwrap();
 
         assert!(re.is_match(&result[9]));
@@ -929,11 +952,11 @@ mod tests {
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
 
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             let mut repository = Repository::default();
-            repository_actor(&mut repository, receiver);
+            repository_actor(&mut repository, &mut receiver).await;
         });
 
         handle(&sender, reader, &mut writer, &mut terminal)
@@ -1030,7 +1053,7 @@ mod tests {
 
         println!("{}", result[10]);
 
-        let re_pattern = r"Bank: 2\nStatus: ok\nResult: \n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)";
+        let re_pattern = r"Bank: 2\nStatus: ok\nResult:\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)";
         let re = Regex::new(re_pattern).unwrap();
 
         assert!(re.is_match(&result[10]));

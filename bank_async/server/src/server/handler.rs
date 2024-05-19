@@ -1,8 +1,11 @@
 use crate::bank::Bank;
 use crate::server::command::{parse_command, Command, ParseError};
 use std::io::Write;
-use std::sync::mpsc::{channel, Sender};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    sync::oneshot::{channel, Sender},
+};
 
 #[derive(Default, Clone, Debug)]
 pub struct Context {
@@ -43,7 +46,7 @@ async fn handle_help<W: AsyncWriteExt + Unpin>(writer: &mut W) -> Result<()> {
 }
 
 async fn handle_command<W: AsyncWriteExt + Unpin>(
-    sender: &Sender<(Command, Sender<String>)>,
+    sender: &UnboundedSender<(Command, Sender<String>)>,
     command: &Command,
     writer: &mut W,
 ) -> Result<()> {
@@ -53,7 +56,7 @@ async fn handle_command<W: AsyncWriteExt + Unpin>(
         _ => {
             let (response_sender, response_receiver) = channel::<String>();
             sender.send((*command, response_sender))?;
-            let response = response_receiver.recv()?;
+            let response = response_receiver.await?;
             writer.write_all(response.as_bytes()).await?;
         }
     };
@@ -81,7 +84,7 @@ async fn handle_parse_error<W: AsyncWriteExt + Unpin>(
 }
 
 pub async fn handle<Reader, Writer, Terminal>(
-    sender: &Sender<(Command, Sender<String>)>,
+    sender: &UnboundedSender<(Command, Sender<String>)>,
     reader: Reader,
     writer: &mut Writer,
     terminal: &mut Terminal,
@@ -125,12 +128,13 @@ where
 mod tests {
     use super::*;
     use std::str::from_utf8;
+    use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]
     async fn unknown_command_works() {
         let mut terminal = Vec::new();
 
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "test_command".as_bytes();
         let mut writer = Vec::new();
@@ -148,7 +152,7 @@ mod tests {
     #[tokio::test]
     async fn handle_empty_command_works() {
         let mut terminal = Vec::new();
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "".as_bytes();
         let mut writer = Vec::new();
@@ -166,7 +170,7 @@ mod tests {
     #[tokio::test]
     async fn handle_quit_command_works() {
         let mut terminal = Vec::new();
-        let (sender, _) = channel::<(Command, Sender<String>)>();
+        let (sender, _) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "quit".as_bytes();
         let mut writer = Vec::new();
@@ -186,13 +190,13 @@ mod tests {
     #[tokio::test]
     async fn handle_any_other_legal_command_works() {
         let mut terminal = Vec::new();
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
 
         let reader = "new_bank".as_bytes();
         let mut writer = Vec::new();
 
-        std::thread::spawn(move || {
-            let (command, response_sender) = receiver.recv().unwrap();
+        tokio::spawn(async move {
+            let (command, response_sender) = receiver.recv().await.unwrap();
             assert_eq!(command, Command::NewBank);
             response_sender
                 .send("Response from command actor\n\n".to_owned())

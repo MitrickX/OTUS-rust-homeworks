@@ -2,20 +2,20 @@ use crate::bank::account::AccountID;
 use crate::bank::log::Operation;
 use crate::server::command::Command;
 use crate::server::repository::{Repository, RepositoryError};
-use std::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{mpsc::UnboundedReceiver, oneshot::Sender};
 
-pub fn repository_actor(
+pub async fn repository_actor(
     repository: &mut Repository,
-    command_receiver: Receiver<(Command, Sender<String>)>,
+    command_receiver: &mut UnboundedReceiver<(Command, Sender<String>)>,
 ) {
-    command_receiver
-        .iter()
-        .for_each(|(command, response_sender)| {
+    loop {
+        if let Some((command, response_sender)) = command_receiver.recv().await {
             let response = handle_command(repository, &command);
             if let Err(err) = response_sender.send(response) {
                 eprintln!("Error sending response: {}", err);
             }
-        })
+        }
+    }
 }
 
 fn handle_new_bank(repository: &mut Repository) -> String {
@@ -171,13 +171,16 @@ fn handle_transfer(
 
 fn operations_as_string<'a, I: Iterator<Item = &'a Operation>>(operations: I) -> String {
     let operations: Vec<String> = operations.map(|op| op.to_string()).collect();
+    if operations.len() == 0 {
+        return String::from("no operations yet");
+    }
     operations.join("\n")
 }
 
 fn handle_list_account_operations(repository: &mut Repository, id: AccountID) -> String {
     let operations = repository.get_account_operations(id);
     format!(
-        "Bank: {}\nStatus: ok\nResult: \n{}\n\n",
+        "Bank: {}\nStatus: ok\nResult:\n{}\n\n",
         repository.current_bank_id(),
         operations_as_string(operations),
     )
@@ -186,7 +189,7 @@ fn handle_list_account_operations(repository: &mut Repository, id: AccountID) ->
 fn handle_list_all_operations(repository: &mut Repository) -> String {
     let operations = repository.get_all_operations();
     format!(
-        "Bank: {}\nStatus: ok\nResult: \n{}\n\n",
+        "Bank: {}\nStatus: ok\nResult:\n{}\n\n",
         repository.current_bank_id(),
         operations_as_string(operations),
     )
