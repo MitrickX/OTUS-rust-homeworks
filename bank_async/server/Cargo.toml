@@ -8,3 +8,10 @@ edition = "2021"
 [dependencies]
 uuid = { version = "1.8.0", features = ["v4", "fast-rng", "macro-diagnostics"] }
 regex = "1.10.4"
+tokio = { version = "1.37.0", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-std",
+    "io-util",
+] }

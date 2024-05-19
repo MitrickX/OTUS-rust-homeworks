@@ -1,7 +1,8 @@
 use crate::bank::Bank;
 use crate::server::command::{parse_command, Command, ParseError};
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::sync::mpsc::{channel, Sender};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 #[derive(Default, Clone, Debug)]
 pub struct Context {
@@ -9,100 +10,112 @@ pub struct Context {
     pub current_bank: usize,
 }
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn handle_quit<W: Write>(writer: &mut W) -> Result<()> {
-    writer.write_all("Bye bye\n\n".as_bytes())?;
-
-    Ok(())
-}
-
-fn handle_help<W: Write>(writer: &mut W) -> Result<()> {
-    writer.write_all("Supported commands:\n".as_bytes())?;
-    writer.write_all("  new_bank\n".as_bytes())?;
-    writer.write_all("  change_bank <bank_id>\n".as_bytes())?;
-    writer.write_all("  restore_bank <bank_id>\n".as_bytes())?;
-    writer.write_all("  which_bank\n".as_bytes())?;
-    writer.write_all("  register_account <balance>\n".as_bytes())?;
-    writer.write_all("  new_account <balance> - alias for register_account\n".as_bytes())?;
-    writer.write_all("  get_balance <account_id>\n".as_bytes())?;
-    writer.write_all("  deposit <account_id> <amount>\n".as_bytes())?;
-    writer.write_all("  withdraw <account_id> <amount>\n".as_bytes())?;
-    writer
-        .write_all("  transfer <sender_account_id> <receiver_account_id> <amount>\n".as_bytes())?;
-    writer.write_all("  list_account_operations <account_id>\n".as_bytes())?;
-    writer.write_all(
-        "  get_account_operations <account_id> - alias for list_account_operations\n".as_bytes(),
-    )?;
-    writer.write_all("  list_all_operations\n".as_bytes())?;
-    writer.write_all("  get_all_operations - alias for list_all_operations\n".as_bytes())?;
-    writer.write_all("  quit\n".as_bytes())?;
-    writer.write_all("\n".as_bytes())?;
+async fn handle_quit<W: AsyncWriteExt + Unpin>(writer: &mut W) -> Result<()> {
+    writer.write_all("Bye bye\n\n".as_bytes()).await?;
 
     Ok(())
 }
 
-fn handle_command(
+async fn handle_help<W: AsyncWriteExt + Unpin>(writer: &mut W) -> Result<()> {
+    let help = br"Supported commands:
+  new_bank
+  change_bank <bank_id>
+  restore_bank <bank_id>
+  which_bank
+  register_account <balance>
+  new_account <balance> - alias for register_account
+  get_balance <account_id>
+  deposit <account_id> <amount>
+  withdraw <account_id> <amount>
+  transfer <sender_account_id> <receiver_account_id> <amount>
+  list_account_operations <account_id>
+  get_account_operations <account_id> - alias for list_account_operations
+  list_all_operations
+  get_all_operations - alias for list_all_operations
+  quit
+
+";
+    writer.write_all(help).await?;
+
+    Ok(())
+}
+
+async fn handle_command<W: AsyncWriteExt + Unpin>(
     sender: &Sender<(Command, Sender<String>)>,
     command: &Command,
-    writer: &mut impl Write,
+    writer: &mut W,
 ) -> Result<()> {
     match *command {
-        Command::Quit => handle_quit(writer)?,
-        Command::Help => handle_help(writer)?,
+        Command::Quit => handle_quit(writer).await?,
+        Command::Help => handle_help(writer).await?,
         _ => {
             let (response_sender, response_receiver) = channel::<String>();
             sender.send((*command, response_sender))?;
             let response = response_receiver.recv()?;
-            writer.write_all(response.as_bytes())?;
+            writer.write_all(response.as_bytes()).await?;
         }
     };
 
     Ok(())
 }
 
-fn handle_parse_error(e: ParseError, command: &str, writer: &mut impl Write) -> Result<()> {
-    writer.write_all(
-        format!(
-            "Command: {}\nStatus: error\nType: parse\nError: {}\n\n",
-            command.trim(),
-            e
+async fn handle_parse_error<W: AsyncWriteExt + Unpin>(
+    e: ParseError,
+    command: &str,
+    writer: &mut W,
+) -> Result<()> {
+    writer
+        .write_all(
+            format!(
+                "Command: {}\nStatus: error\nType: parse\nError: {}\n\n",
+                command.trim(),
+                e
+            )
+            .as_bytes(),
         )
-        .as_bytes(),
-    )?;
+        .await?;
 
     Ok(())
 }
 
-pub fn handle<R: BufRead, W: Write, T: Write>(
+pub async fn handle<Reader, Writer, Terminal>(
     sender: &Sender<(Command, Sender<String>)>,
-    reader: &mut R,
-    writer: &mut W,
-    terminal: &mut T,
-) -> Result<()> {
+    reader: Reader,
+    writer: &mut Writer,
+    terminal: &mut Terminal,
+) -> Result<()>
+where
+    Reader: AsyncRead + Unpin,
+    Writer: AsyncWrite + Unpin,
+    Terminal: Write,
+{
+    let mut reader = BufReader::new(reader);
+
     loop {
         let mut line = String::new();
-        match reader.read_line(&mut line) {
+        match reader.read_line(&mut line).await {
             Ok(0) => {
                 terminal.write_all("Client disconnected\n".as_bytes())?;
                 break;
             }
             Ok(_) => match parse_command(&line) {
                 Ok(command) => {
-                    handle_command(sender, &command, writer)?;
+                    handle_command(sender, &command, writer).await?;
                     if command == Command::Quit {
                         terminal.write_all("Client quited\n".as_bytes())?;
                         break;
                     }
                 }
-                Err(e) => handle_parse_error(e, &line, writer)?,
+                Err(e) => handle_parse_error(e, &line, writer).await?,
             },
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
                 // just ignore invalid data
                 continue;
             }
             Err(e) => return Err(e.into()),
-        };
+        }
     }
 
     Ok(())
@@ -113,31 +126,36 @@ mod tests {
     use super::*;
     use std::str::from_utf8;
 
-    #[test]
-    fn unknown_command_works() {
-        let mut reader = "test_command".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn unknown_command_works() {
         let mut terminal = Vec::new();
 
         let (sender, _) = channel::<(Command, Sender<String>)>();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        let reader = "test_command".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Command: test_command\nStatus: error\nType: parse\nError: unknown command\n\n"
-                .to_owned()
+            "Command: test_command\nStatus: error\nType: parse\nError: unknown command\n\n",
+            from_utf8(writer.as_slice()).unwrap()
         );
     }
 
-    #[test]
-    fn handle_empty_command_works() {
-        let mut reader = "".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_empty_command_works() {
         let mut terminal = Vec::new();
-
         let (sender, _) = channel::<(Command, Sender<String>)>();
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let reader = "".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
             from_utf8(terminal.as_slice()).unwrap(),
@@ -145,32 +163,33 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_quit_command_works() {
-        let mut reader = "quit".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_quit_command_works() {
         let mut terminal = Vec::new();
-
         let (sender, _) = channel::<(Command, Sender<String>)>();
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Bye bye\n\n".to_owned()
-        );
+        let reader = "quit".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
+
         assert_eq!(
             from_utf8(terminal.as_slice()).unwrap(),
             "Client quited\n".to_owned()
         );
+
+        assert_eq!("Bye bye\n\n", from_utf8(writer.as_slice()).unwrap());
     }
 
-    #[test]
-    fn handle_any_other_command_works() {
-        let mut reader = "new_bank".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_any_other_legal_command_works() {
         let mut terminal = Vec::new();
-
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
+
+        let reader = "new_bank".as_bytes();
+        let mut writer = Vec::new();
 
         std::thread::spawn(move || {
             let (command, response_sender) = receiver.recv().unwrap();
@@ -180,11 +199,13 @@ mod tests {
                 .unwrap();
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Response from command actor\n\n".to_owned()
+            "Response from command actor\n\n",
+            from_utf8(writer.as_slice()).unwrap()
         );
     }
 }

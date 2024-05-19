@@ -2,58 +2,62 @@ use server::server::actor::repository_actor;
 use server::server::command::Command;
 use server::server::handler::handle;
 use server::server::repository::Repository;
-use std::io::{BufReader, Write};
-use std::net::TcpListener;
 use std::sync::mpsc::{channel, Sender};
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 const ADDR: &str = "127.0.0.1:1337";
 
-fn main() -> Result<()> {
-    let listener = TcpListener::bind(ADDR)?;
+#[tokio::main]
+async fn main() -> Result<()> {
+    let listener = TcpListener::bind(ADDR).await?;
 
     println!("Listening on {}", listener.local_addr()?);
 
-    let (sender, receiver) = channel::<(Command, Sender<String>)>();
+    loop {
+        let (mut stream, addr) = listener.accept().await?;
 
-    let actor_handle = std::thread::spawn(move || {
-        let mut repository = Repository::default();
-        repository_actor(&mut repository, receiver);
-    });
+        println!("New client connected on {}", addr);
 
-    for stream in listener.incoming() {
-        let stream = stream?;
+        let (sender, receiver) = channel::<(Command, Sender<String>)>();
 
-        let sender = sender.clone();
+        let actor_handle = std::thread::spawn(move || {
+            let mut repository = Repository::default();
+            repository_actor(&mut repository, receiver);
+        });
 
-        std::thread::spawn(move || {
-            let mut reader = BufReader::new(&stream);
-            let mut writer = stream.try_clone().unwrap();
+        tokio::spawn(async move {
+            let (reader, mut writer) = stream.split();
+            let mut terminal = std::io::stdout();
 
             writer
                 .write_all(
-                    "Welcome to bank application\nPrint 'help' and press Enter to see the list of commands\n".as_bytes(),
+                    br"Welcome to bank application
+Print 'help' and press Enter to see the list of commands
+",
                 )
+                .await
                 .unwrap();
 
-            let mut terminal = std::io::stdout();
+            match handle(&sender, reader, &mut writer, &mut terminal).await {
+                Ok(_) => println!("{} disconnected", addr),
+                Err(e) => {
+                    writer
+                        .write_all(
+                            format!("Error occurred on server while handling request: {}\n", e)
+                                .as_bytes(),
+                        )
+                        .await
+                        .unwrap();
 
-            if let Err(e) = handle(&sender, &mut reader, &mut writer, &mut terminal) {
-                writer
-                    .write_all(
-                        format!("Error occurred on server while handling request: {}\n", e)
-                            .as_bytes(),
-                    )
-                    .unwrap();
-                println!("Error occured: {}", e);
+                    println!("Error occured: {}", e);
+                }
             };
         });
+
+        actor_handle.join().unwrap();
     }
-
-    actor_handle.join().unwrap();
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -65,107 +69,120 @@ mod tests {
     use server::server::command::ParseError;
     use std::str::from_utf8;
 
-    #[test]
-    fn unknown_command_works() {
-        let mut reader = "test_command".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn unknown_command_works() {
         let mut terminal = Vec::new();
-
         let (sender, _) = channel::<(Command, Sender<String>)>();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        let reader = "test_command".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Command: test_command\nStatus: error\nType: parse\nError: unknown command\n\n"
-                .to_owned()
+            "Command: test_command\nStatus: error\nType: parse\nError: unknown command\n\n",
+            from_utf8(writer.as_slice()).unwrap()
         );
     }
 
-    #[test]
-    fn handle_empty_command_works() {
-        let mut reader = "".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_empty_command_works() {
         let mut terminal = Vec::new();
 
         let (sender, _) = channel::<(Command, Sender<String>)>();
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+
+        let reader = "".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
             from_utf8(terminal.as_slice()).unwrap(),
-            "Client disconnected\n".to_owned()
+            "Client disconnected\n"
         );
     }
 
-    #[test]
-    fn handle_quit_command_works() {
-        let mut reader = "quit".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_quit_command_works() {
         let mut terminal = Vec::new();
-
         let (sender, _) = channel::<(Command, Sender<String>)>();
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
 
-        assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Bye bye\n\n".to_owned()
-        );
+        let reader = "quit".as_bytes();
+        let mut writer = Vec::new();
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
+
         assert_eq!(
             from_utf8(terminal.as_slice()).unwrap(),
             "Client quited\n".to_owned()
         );
+
+        assert_eq!("Bye bye\n\n", from_utf8(writer.as_slice()).unwrap());
     }
 
-    #[test]
-    fn handle_new_bank_command() {
-        let mut reader = "new_bank".as_bytes();
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_new_bank_command() {
         let mut terminal = Vec::new();
-
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
+
+        let reader = "new_bank".as_bytes();
+        let mut writer = Vec::new();
 
         std::thread::spawn(move || {
             let mut repository = Repository::default();
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         assert_eq!(
-            from_utf8(writer.as_slice()).unwrap(),
-            "Bank: 0\nStatus: ok\nResult: 1\n\n".to_owned(),
+            "Bank: 0\nStatus: ok\nResult: 1\n\n",
+            from_utf8(writer.as_slice()).unwrap()
         );
     }
 
-    #[test]
-    fn handle_which_bank_command() {
-        let input = vec!["which_bank", "new_bank", "which_bank"].join("\n");
-        let mut reader = input.as_bytes();
-
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_which_bank_command() {
         let mut terminal = Vec::new();
-
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
+
+        let input = vec!["which_bank", "new_bank", "which_bank"].join("\n");
+        let reader = input.as_bytes();
+        let mut writer = Vec::new();
 
         std::thread::spawn(move || {
             let mut repository = Repository::default();
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
-        let expected = vec![
-            "Bank: 1\nStatus: ok\nResult: 1\n\n".to_owned(),
-            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
-            "Bank: 2\nStatus: ok\nResult: 2\n\n".to_owned(),
-        ]
-        .join("");
-
-        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+        assert_eq!(
+            vec![
+                "Bank: 1\nStatus: ok\nResult: 1\n\n",
+                "Bank: 1\nStatus: ok\nResult: 2\n\n",
+                "Bank: 2\nStatus: ok\nResult: 2\n\n",
+            ]
+            .join(""),
+            from_utf8(writer.as_slice()).unwrap()
+        );
     }
 
-    #[test]
-    fn handle_change_bank_command() {
+    #[tokio::test]
+    async fn handle_change_bank_command() {
+        let mut terminal = Vec::new();
+        let (sender, receiver) = channel::<(Command, Sender<String>)>();
+
         let input = vec![
             "new_bank",
             "new_bank",
@@ -178,51 +195,52 @@ mod tests {
             "change_bank 0",
         ]
         .join("\n");
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
         let mut writer = Vec::new();
-        let mut terminal = Vec::new();
-
-        let (sender, receiver) = channel::<(Command, Sender<String>)>();
 
         std::thread::spawn(move || {
             let mut repository = Repository::default();
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
-        let expected = vec![
-            "Bank: 0\nStatus: ok\nResult: 1\n\n".to_owned(),
-            "Bank: 1\nStatus: ok\nResult: 2\n\n".to_owned(),
-            "Bank: 2\nStatus: ok\nResult: 3\n\n".to_owned(),
-            "Bank: 3\nStatus: ok\nResult: 2\n\n".to_owned(),
-            "Bank: 2\nStatus: ok\nResult: 3\n\n".to_owned(),
-            "Bank: 3\nStatus: ok\nResult: 1\n\n".to_owned(),
-            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
-            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
-            "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n".to_owned(),
-        ]
-        .join("");
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
-        assert_eq!(from_utf8(writer.as_slice()).unwrap(), expected);
+        assert_eq!(
+            vec![
+                "Bank: 0\nStatus: ok\nResult: 1\n\n",
+                "Bank: 1\nStatus: ok\nResult: 2\n\n",
+                "Bank: 2\nStatus: ok\nResult: 3\n\n",
+                "Bank: 3\nStatus: ok\nResult: 2\n\n",
+                "Bank: 2\nStatus: ok\nResult: 3\n\n",
+                "Bank: 3\nStatus: ok\nResult: 1\n\n",
+                "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n",
+                "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n",
+                "Bank: 1\nStatus: error\nType: bank\nError: invalid bank id\n\n",
+            ]
+            .join(""),
+            from_utf8(writer.as_slice()).unwrap()
+        );
     }
 
-    #[test]
-    fn handle_register_account_works() {
-        let input = vec!["register_account", "register_account 100"].join("\n");
-
-        let mut reader = input.as_bytes();
-
-        let mut writer = Vec::new();
+    #[tokio::test]
+    async fn handle_register_account_works() {
         let mut terminal = Vec::new();
-
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
+
+        let input = vec!["register_account", "register_account 100"].join("\n");
+        let reader = input.as_bytes();
+        let mut writer = Vec::new();
 
         std::thread::spawn(move || {
             let mut repository = Repository::default();
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -252,11 +270,11 @@ mod tests {
         assert!(AccountID::parse_str(account_id).is_ok());
     }
 
-    #[test]
-    fn handle_get_balance_works() {
-        let mut reader = "register_account 100".as_bytes();
-
+    #[tokio::test]
+    async fn handle_get_balance_works() {
+        let reader = "register_account 100".as_bytes();
         let mut writer = Vec::new();
+
         let mut terminal = Vec::new();
 
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
@@ -266,7 +284,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -294,7 +314,9 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, &mut reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -327,11 +349,11 @@ mod tests {
         assert_eq!(format!("Bank: 1\nStatus: ok\nResult: {}", 100), result[3]);
     }
 
-    #[test]
-    fn handle_deposit_works() {
-        let mut reader = "register_account 100".as_bytes();
-
+    #[tokio::test]
+    async fn handle_deposit_works() {
+        let reader = "register_account 100".as_bytes();
         let mut writer = Vec::new();
+
         let mut terminal = Vec::new();
 
         let (sender, receiver) = channel::<(Command, Sender<String>)>();
@@ -341,7 +363,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -368,9 +392,11 @@ mod tests {
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -422,9 +448,9 @@ mod tests {
         assert!(OperationID::parse_str(operation_id).is_ok());
     }
 
-    #[test]
-    fn handle_withdraw_works() {
-        let mut reader = "register_account 100".as_bytes();
+    #[tokio::test]
+    async fn handle_withdraw_works() {
+        let reader = "register_account 100".as_bytes();
 
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
@@ -436,7 +462,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -464,9 +492,11 @@ mod tests {
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -523,15 +553,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_transfer_works() {
+    #[tokio::test]
+    async fn handle_transfer_works() {
         let input = vec![
             "register_account 100".to_owned(),
             "register_account 50".to_owned(),
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
@@ -543,7 +573,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -590,9 +622,11 @@ mod tests {
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -675,15 +709,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_list_operations_works() {
+    #[tokio::test]
+    async fn handle_list_operations_works() {
         let input = vec![
             "register_account 100".to_owned(),
             "register_account 50".to_owned(),
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
@@ -695,7 +729,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -735,9 +771,11 @@ mod tests {
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -878,15 +916,15 @@ mod tests {
         assert_eq!(account2_id, account_id);
     }
 
-    #[test]
-    fn handle_restore_bank_works() {
+    #[tokio::test]
+    async fn handle_restore_bank_works() {
         let input = vec![
             "register_account 100".to_owned(),
             "register_account 50".to_owned(),
         ]
         .join("\n");
 
-        let mut reader = input.as_bytes();
+        let reader = input.as_bytes();
 
         let mut writer = Vec::new();
         let mut terminal = Vec::new();
@@ -898,7 +936,9 @@ mod tests {
             repository_actor(&mut repository, receiver);
         });
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
@@ -941,7 +981,9 @@ mod tests {
 
         let mut reader = input.as_bytes();
 
-        handle(&sender, &mut reader, &mut writer, &mut terminal).unwrap();
+        handle(&sender, &mut reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
 
         let result = from_utf8(writer.as_slice())
             .unwrap()
