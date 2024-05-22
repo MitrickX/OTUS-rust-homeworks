@@ -85,17 +85,29 @@ impl Repository {
         }
     }
 
-    pub fn get_balance(&self, id: AccountID) -> Result<u64> {
+    pub fn get_balance(&mut self, id: AccountID) -> Result<u64> {
+        if self.banks.is_empty() {
+            self.new_bank();
+        }
+
         let bank = &self.banks[self.current_bank];
         bank.get_balance(id).map_err(RepositoryError::BankError)
     }
 
     pub fn deposit(&mut self, id: AccountID, amount: u64) -> Result<OperationID> {
+        if self.banks.is_empty() {
+            self.new_bank();
+        }
+
         let bank = &mut self.banks[self.current_bank];
         bank.deposit(id, amount).map_err(RepositoryError::BankError)
     }
 
     pub fn withdraw(&mut self, id: AccountID, amount: u64) -> Result<OperationID> {
+        if self.banks.is_empty() {
+            self.new_bank();
+        }
+
         let bank = &mut self.banks[self.current_bank];
         bank.withdraw(id, amount)
             .map_err(RepositoryError::BankError)
@@ -107,14 +119,24 @@ impl Repository {
         receiver_id: AccountID,
         amount: u64,
     ) -> Result<OperationID> {
+        if self.banks.is_empty() {
+            self.new_bank();
+        }
+
         let bank = &mut self.banks[self.current_bank];
         bank.transfer(sender_id, receiver_id, amount)
             .map_err(RepositoryError::BankError)
     }
 
     pub fn get_account_operations(&self, id: AccountID) -> impl Iterator<Item = &Operation> {
-        let bank = &self.banks[self.current_bank];
-        bank.get_account_operations(id)
+        let result: Vec<&Operation> = if self.banks.is_empty() {
+            Vec::new()
+        } else {
+            let bank = &self.banks[self.current_bank];
+            bank.get_account_operations(id).collect()
+        };
+
+        result.into_iter()
     }
 
     pub fn get_all_operations(&self) -> impl Iterator<Item = &Operation> {

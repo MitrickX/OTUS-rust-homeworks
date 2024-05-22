@@ -352,6 +352,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_get_balance_when_no_accounts_yet_works() {
+        let reader = "get_balance 6fce6320-256a-4459-a1d3-5da077e21661".as_bytes();
+        let mut writer = Vec::new();
+
+        let mut terminal = Vec::new();
+
+        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
+
+        tokio::spawn(async move {
+            let mut repository = Repository::default();
+            repository_actor(&mut repository, &mut receiver).await;
+        });
+
+        handle(&sender, reader, &mut writer, &mut terminal)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            "Bank: 1\nStatus: fail\nResult: Bank error: Account not found\n\n",
+            from_utf8(writer.as_slice()).unwrap()
+        );
+    }
+
+    #[tokio::test]
     async fn handle_deposit_works() {
         let reader = "register_account 100".as_bytes();
         let mut writer = Vec::new();
