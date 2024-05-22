@@ -18,18 +18,19 @@ async fn main() -> Result<()> {
 
     println!("Listening on {}", listener.local_addr()?);
 
+    let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
+
+    tokio::spawn(async move {
+        let mut repository = Repository::default();
+        repository_actor(&mut repository, &mut receiver).await;
+    });
+
     loop {
         let (mut stream, addr) = listener.accept().await?;
 
         println!("New client connected on {}", addr);
 
-        let (sender, mut receiver) = unbounded_channel::<(Command, Sender<String>)>();
-
-        tokio::spawn(async move {
-            let mut repository = Repository::default();
-            repository_actor(&mut repository, &mut receiver).await;
-        });
-
+        let sender = sender.clone();
         tokio::spawn(async move {
             let (reader, mut writer) = stream.split();
             let mut terminal = std::io::stdout();

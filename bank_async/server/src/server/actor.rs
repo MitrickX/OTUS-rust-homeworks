@@ -171,7 +171,7 @@ fn handle_transfer(
 
 fn operations_as_string<'a, I: Iterator<Item = &'a Operation>>(operations: I) -> String {
     let operations: Vec<String> = operations.map(|op| op.to_string()).collect();
-    if operations.len() == 0 {
+    if operations.is_empty() {
         return String::from("no operations yet");
     }
     operations.join("\n")
