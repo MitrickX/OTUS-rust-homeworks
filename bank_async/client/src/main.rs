@@ -1,22 +1,33 @@
-use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::net::TcpStream;
+use std::io::Write;
 use std::str::from_utf8;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+};
 
 const ADDR: &str = "127.0.0.1:1337";
 
-fn main() {
-    let stream = TcpStream::connect(ADDR).unwrap();
-    let _ = stream.set_nonblocking(true);
+#[tokio::main]
+async fn main() {
+    let stream = TcpStream::connect(ADDR).await.unwrap();
+    let (reader, mut writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
 
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let mut writer: TcpStream = stream;
+    tokio::spawn(async move {
+        let input = std::io::stdin();
+        loop {
+            let mut msg: String = String::new();
+            input.read_line(&mut msg).unwrap();
+            if let Err(e) = writer.write_all(msg.as_bytes()).await {
+                panic!("Error happened: {}", e);
+            }
+        }
+    });
 
     let mut output = std::io::stdout();
-    let input = std::io::stdin();
-
-    std::thread::spawn(move || loop {
+    loop {
         let mut buf = Vec::new();
-        match reader.read_until(b'\n', &mut buf) {
+        match reader.read_until(b'\n', &mut buf).await {
             Ok(bytes_num) => {
                 let _ = output.write_all(&buf[..bytes_num]);
                 output.flush().unwrap();
@@ -26,16 +37,7 @@ fn main() {
                     std::process::exit(0);
                 }
             }
-            Err(e) if e.kind() == ErrorKind::WouldBlock => std::thread::yield_now(),
             Err(e) => panic!("Error happened: {}", e),
-        }
-    });
-
-    loop {
-        let mut msg: String = String::new();
-        input.read_line(&mut msg).unwrap();
-        if let Err(e) = writer.write_all(msg.as_bytes()) {
-            panic!("Error happened: {}", e);
         }
     }
 }
